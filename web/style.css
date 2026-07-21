@@ -101,6 +101,7 @@ a:hover { color: var(--accent-hover); }
 }
 .search input::placeholder { color: var(--muted); }
 .search input:focus-visible { outline-offset: 0; border-color: var(--accent); background: var(--panel); }
+.mast-actions { display: flex; gap: 6px; }
 
 /* ── view shell ───────────────────────────────────────── */
 .view { max-width: var(--wrap); margin: 0 auto; padding: 20px 22px 80px; }

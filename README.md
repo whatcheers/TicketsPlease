@@ -48,17 +48,20 @@ Three ways to move or back it up, in increasing git-friendliness:
    hardcoded paths, so `git clone` (or copy the repo) onto any machine with
    Python and `python app.py` just works — Windows, or a Linux box.
 3. **Export to JSON** — a text snapshot you can commit to git or carry between
-   machines. Attachments are embedded (base64), so it's self-contained:
+   machines. Attachments are embedded (base64), so it's self-contained.
+
+   In the app: the **Backup** button (masthead) downloads a snapshot, and
+   **Restore** loads one back in. From the command line:
 
    ```
    python app.py --export my-tickets.json     # write a snapshot
    python app.py --import my-tickets.json      # restore it (replaces all data)
    ```
 
-   You can also download a snapshot from the running server at
-   `http://localhost:5137/api/export`.
-
-   > **Import replaces everything.** It's "restore this backup," not "merge."
+   > **Restore replaces everything.** It's "restore this backup," not "merge."
+   > As a safety net, every restore first writes a snapshot of the data it's
+   > about to replace to `data/backups/pre-restore-<timestamp>.json` — so a
+   > wrong restore is always undoable.
 
 ## Optional: always-on at login (Windows)
 

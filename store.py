@@ -380,9 +380,26 @@ def export_data(con):
     return out
 
 
+def safety_backup(con):
+    """Snapshot the current data to data/backups/ before a destructive restore.
+
+    Returns the snapshot path, or None when there is nothing worth saving
+    (a fresh install restoring its first backup shouldn't create noise)."""
+    if not any(con.execute(f"SELECT 1 FROM {t} LIMIT 1").fetchone()
+               for t in _TABLES):
+        return None
+    d = db.DATA / "backups"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / ("pre-restore-" + now().replace(":", "-") + ".json")
+    p.write_text(json.dumps(export_data(con), indent=2), "utf-8")
+    return p
+
+
 def import_data(con, data):
     """Replace all current data with the snapshot. Destructive by design — this
-    is 'restore this backup', not 'merge'. Wrapped in one transaction."""
+    is 'restore this backup', not 'merge'. A pre-restore snapshot is written to
+    data/backups/ first, so a bad restore is always undoable."""
+    safety_backup(con)
     con.execute("PRAGMA foreign_keys = OFF")
     try:
         for tbl in reversed(_TABLES):

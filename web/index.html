@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 
@@ -35,11 +35,18 @@
       <input id="searchInput" type="search" autocomplete="off"
              placeholder="Search tickets — title or notes…" aria-label="Search tickets">
     </form>
+    <div class="mast-actions">
+      <a class="btn" href="api/export" title="Download a snapshot of all data">Backup</a>
+      <button id="restoreBtn" class="btn" type="button"
+              title="Replace all data from a backup file">Restore</button>
+      <input id="restoreFile" type="file" accept=".json,application/json" hidden
+             aria-label="Backup file to restore">
+    </div>
   </div>
 </header>
 
 <main id="main"><div id="view" class="view" tabindex="-1"></div></main>
 
-<script src="app.js?v=2"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>

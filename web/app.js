@@ -478,6 +478,30 @@ function route() {
 }
 window.addEventListener("hashchange", route);
 
+/* ── backup / restore (masthead) ──────────────────────── */
+document.getElementById("restoreBtn").addEventListener("click", () =>
+  document.getElementById("restoreFile").click());
+document.getElementById("restoreFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";                     // allow re-picking the same file
+  if (!f) return;
+  let data;
+  try { data = JSON.parse(await f.text()); }
+  catch { return toast(new Error("That file isn't valid JSON — pick a Triage backup.")); }
+  if (!data || !Array.isArray(data.tickets)) {
+    return toast(new Error("That file isn't a Triage backup — no tickets in it."));
+  }
+  if (!confirm('Restore "' + f.name + '" (' + data.tickets.length + " tickets)?\n\n" +
+      "This replaces ALL current data. A safety snapshot of the current data " +
+      "is saved to data\\backups\\ first, so this is undoable.")) return;
+  try {
+    const st = await mut("POST", "import", data);
+    alert("Restored " + st.total + " tickets.");
+    if (location.hash && location.hash !== "#/") location.hash = "#/";
+    else renderList();
+  } catch (err) { toast(err); }
+});
+
 document.getElementById("searchForm").addEventListener("submit", (e) => {
   e.preventDefault();
   F.q = document.getElementById("searchInput").value.trim();

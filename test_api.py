@@ -96,6 +96,20 @@ class ApiTest(unittest.TestCase):
         st, got = self.req("GET", f"/api/attachments/{a['id']}")
         self.assertEqual(got, blob)
 
+    def test_restore_writes_safety_backup(self):
+        # A restore is destructive, so it must first snapshot the current data
+        # to data/backups/ — that snapshot is the undo.
+        st, _ = self.req("POST", "/api/tickets", {"title": "pre-restore data"})
+        self.assertEqual(st, 201)
+        st, snap = self.req("GET", "/api/export")
+        self.assertEqual(st, 200)
+        st, res = self.req("POST", "/api/import", snap)
+        self.assertEqual(st, 200)
+        backups = list((db.DATA / "backups").glob("pre-restore-*.json"))
+        self.assertTrue(backups, "restore should write a safety snapshot first")
+        restored = json.loads(backups[-1].read_text("utf-8"))
+        self.assertIn("tickets", restored)
+
     def test_overdue_computation(self):
         st, past = self.req("POST", "/api/tickets", {"title": "past due"})
         self.req("PATCH", f"/api/tickets/{past['id']}", {"due_at": "2000-01-01T00:00:00"})
