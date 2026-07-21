@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+"""Smoke tests for the ticket tracker HTTP API.
+
+Runs the real server against a throwaway data dir, then drives it with
+http.client — the same path the browser takes. No third-party deps.
+
+    python test_api.py
+"""
+
+import http.client
+import json
+import tempfile
+import threading
+import unittest
+from http.server import ThreadingHTTPServer
+from pathlib import Path
+
+import db
+
+# Redirect all persistence to a temp dir BEFORE the app/store touch it.
+_TMP = Path(tempfile.mkdtemp(prefix="triage-test-"))
+db.DATA = _TMP
+db.DB = _TMP / "tickets.db"
+db.ATTACH = _TMP / "attachments"
+
+import app  # noqa: E402  (imported after db paths are redirected)
+
+
+class ApiTest(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        db.init_db()
+        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+        cls.port = cls.srv.server_address[1]
+        cls.thread = threading.Thread(target=cls.srv.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+
+    # ── helper ────────────────────────────────────────────
+    def req(self, method, path, body=None, raw=None, ctype="application/json"):
+        c = http.client.HTTPConnection("127.0.0.1", self.port)
+        headers = {}
+        payload = raw
+        if body is not None:
+            payload = json.dumps(body).encode()
+            headers["Content-Type"] = ctype
+        elif raw is not None:
+            headers["Content-Type"] = ctype
+        c.request(method, path, payload, headers)
+        r = c.getresponse()
+        data = r.read()
+        c.close()
+        ct = r.getheader("Content-Type", "")
+        return r.status, (json.loads(data) if "json" in ct else data)
+
+    # ── the walk-through ──────────────────────────────────
+    def test_full_lifecycle(self):
+        # create
+        st, t = self.req("POST", "/api/tickets", {"title": "Modem drops packets on WAN1"})
+        self.assertEqual(st, 201)
+        tid = t["id"]
+        self.assertEqual(t["status"], "open")
+        self.assertEqual(t["priority"], 3)
+
+        # list shows it
+        st, lst = self.req("GET", "/api/tickets")
+        self.assertEqual(st, 200)
+        self.assertIn(tid, [x["id"] for x in lst["tickets"]])
+
+        # patch status + priority
+        st, t = self.req("PATCH", f"/api/tickets/{tid}", {"status": "waiting", "priority": 1})
+        self.assertEqual(t["status"], "waiting")
+        self.assertEqual(t["priority"], 1)
+
+        # work-note timeline
+        st, t = self.req("POST", f"/api/tickets/{tid}/updates", {"body": "Tried new cable, no change."})
+        self.assertEqual(len(t["updates"]), 1)
+
+        # tags via PATCH (created on the fly)
+        st, t = self.req("PATCH", f"/api/tickets/{tid}", {"tags": ["network", "tmobile"]})
+        self.assertEqual({tg["name"] for tg in t["tags"]}, {"network", "tmobile"})
+        st, tags = self.req("GET", "/api/tags")
+        self.assertIn("network", [x["name"] for x in tags["tags"]])
+
+        # attachment: raw body upload, then fetch the bytes back
+        blob = b"\x89PNG\r\n\x1a\n-fake-screenshot-bytes"
+        st, a = self.req("POST", f"/api/tickets/{tid}/attachments?filename=shot.png",
+                         raw=blob, ctype="image/png")
+        self.assertEqual(st, 201)
+        st, t = self.req("GET", f"/api/tickets/{tid}")
+        self.assertEqual(len(t["attachments"]), 1)
+        st, got = self.req("GET", f"/api/attachments/{a['id']}")
+        self.assertEqual(got, blob)
+
+    def test_overdue_computation(self):
+        st, past = self.req("POST", "/api/tickets", {"title": "past due"})
+        self.req("PATCH", f"/api/tickets/{past['id']}", {"due_at": "2000-01-01T00:00:00"})
+        st, t = self.req("GET", f"/api/tickets/{past['id']}")
+        self.assertTrue(t["overdue"], "a past due date on an open ticket is overdue")
+
+        # once resolved it is no longer overdue
+        self.req("PATCH", f"/api/tickets/{past['id']}", {"status": "resolved"})
+        st, t = self.req("GET", f"/api/tickets/{past['id']}")
+        self.assertFalse(t["overdue"])
+        self.assertTrue(t["resolved_at"])
+
+        # the overdue filter returns the open past-due one, not the resolved one
+        st, other = self.req("POST", "/api/tickets", {"title": "still open past due"})
+        self.req("PATCH", f"/api/tickets/{other['id']}", {"due_at": "2000-01-01T00:00:00"})
+        st, lst = self.req("GET", "/api/tickets?overdue=1")
+        ids = [x["id"] for x in lst["tickets"]]
+        self.assertIn(other["id"], ids)
+        self.assertNotIn(past["id"], ids)
+
+    def test_saved_view(self):
+        st, v = self.req("POST", "/api/views",
+                         {"name": "Waiting on vendor", "filter": {"status": "waiting"}})
+        self.assertEqual(st, 201)
+        st, views = self.req("GET", "/api/views")
+        self.assertIn("Waiting on vendor", [x["name"] for x in views["views"]])
+        self.assertEqual(
+            next(x for x in views["views"] if x["id"] == v["id"])["filter"]["status"], "waiting")
+
+    def test_export_import_roundtrip(self):
+        st, snap = self.req("GET", "/api/export")
+        before = snap["tickets"]
+        # add a ticket that is NOT in the snapshot
+        self.req("POST", "/api/tickets", {"title": "extra after snapshot"})
+        st, lst = self.req("GET", "/api/tickets?status=open,in_progress,waiting,resolved,closed")
+        self.assertGreater(len(lst["tickets"]), len(before))
+        # importing the snapshot restores the earlier state exactly
+        st, stats = self.req("POST", "/api/import", snap)
+        self.assertEqual(stats["total"], len(before))
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

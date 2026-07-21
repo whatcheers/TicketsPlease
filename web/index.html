@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Triage · local ticket desk</title>
+<meta name="description" content="A single-operator IT ticket tracker. Local, no login, no cloud.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%23161c24'/><circle cx='8' cy='8' r='2' fill='%2335d0ba'/><path d='M8 2.5v2M8 11.5v2M2.5 8h2M11.5 8h2' stroke='%2335d0ba' stroke-width='1.4' stroke-linecap='round'/></svg>">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to tickets</a>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <a class="brand" href="#/" aria-label="Triage home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="2.6" fill="var(--accent)"/>
+          <circle cx="12" cy="12" r="6.5" stroke="var(--accent)" stroke-width="1.4" opacity="0.55"/>
+          <circle cx="12" cy="12" r="10.2" stroke="var(--accent)" stroke-width="1.2" opacity="0.28"/>
+        </svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">TRIAGE</span>
+        <span class="brand-tag">local ticket desk</span>
+      </span>
+    </a>
+    <form id="searchForm" class="search" role="search">
+      <input id="searchInput" type="search" autocomplete="off"
+             placeholder="Search tickets — title or notes…" aria-label="Search tickets">
+    </form>
+  </div>
+</header>
+
+<main id="main"><div id="view" class="view" tabindex="-1"></div></main>
+
+<script src="app.js?v=1"></script>
+</body>
+</html>

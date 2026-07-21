@@ -1,0 +1,10 @@
+# Runtime state — the live database and uploaded files. Portable via the JSON
+# export (python app.py --export), not committed as a binary blob.
+data/
+
+# Python
+__pycache__/
+*.pyc
+
+# Local export snapshots (commit these deliberately if you want, but not by default)
+tickets-export-*.json
