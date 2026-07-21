@@ -20,6 +20,10 @@ PRIORITIES = (1, 2, 3, 4)
 STATUSES = ("open", "in_progress", "waiting", "resolved", "closed")
 ACTIVE_STATUSES = ("open", "in_progress", "waiting")   # "not done yet"
 
+# due_mode: the triage bucket when there is no concrete date. Mutually
+# exclusive with due_at — '' means "use due_at (or nothing)".
+DUE_MODES = ("", "asap", "research", "hold")
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tickets (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,6 +34,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   created_at  TEXT    NOT NULL,
   updated_at  TEXT    NOT NULL,
   due_at      TEXT,
+  due_mode    TEXT    NOT NULL DEFAULT '',
   resolved_at TEXT
 );
 
@@ -111,6 +116,11 @@ def init_db():
     con = connect()
     try:
         con.executescript(SCHEMA)
+        # Migration for databases created before due_mode existed.
+        cols = [r["name"] for r in con.execute("PRAGMA table_info(tickets)")]
+        if "due_mode" not in cols:
+            con.execute("ALTER TABLE tickets "
+                        "ADD COLUMN due_mode TEXT NOT NULL DEFAULT ''")
         con.commit()
     finally:
         con.close()

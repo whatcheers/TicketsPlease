@@ -43,6 +43,8 @@ const STATUS = [
 ];
 const PRIO = [[1, "P1 · Critical"], [2, "P2 · High"], [3, "P3 · Normal"], [4, "P4 · Low"]];
 const statusText = (s) => s.replace("_", " ");
+const DUE_MODES = [["asap", "ASAP"], ["research", "Research"], ["hold", "Hold"]];
+const DUE_MODE_LABEL = { asap: "ASAP", research: "research", hold: "hold" };
 
 const VIEWS = [
   { key: "open", label: "Open", params: { status: "open,in_progress,waiting" }, stat: "open" },
@@ -224,6 +226,7 @@ function ticketRow(t) {
 
   const side = el("div", { class: "t-side" });
   if (t.due_at) side.append(el("span", { class: "t-due" + (t.overdue ? " over" : ""), text: (t.overdue ? "overdue · " : "due ") + fmtDue(t.due_at) }));
+  else if (t.due_mode) side.append(el("span", { class: "t-due mode-" + t.due_mode, text: DUE_MODE_LABEL[t.due_mode] || t.due_mode }));
   side.append(el("span", { class: "t-age", text: fmtAge(t.age_seconds) }));
 
   return el("button", {
@@ -291,14 +294,29 @@ async function renderDetail(id) {
       el("span", { class: "d-idtag", text: "#" + String(t.id).padStart(4, "0") }),
       titleInput));
 
-  // description
+  // description — saved explicitly, and only once the ticket has a due set
+  // (a date, or ASAP / Research / Hold). Editable any time.
+  let dueCard;                     // assigned when the sidebar builds, below
   const desc = el("textarea", {
     class: "field", "aria-label": "Description",
-    placeholder: "What's the situation? (optional)",
-    onblur: () => { if (desc.value !== t.body) patch({ body: desc.value }); },
+    placeholder: "What's the situation? (Ctrl+Enter to save)",
+    onkeydown: (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") saveDesc(); },
   });
   desc.value = t.body || "";
-  main.append(el("div", { class: "section-label", text: "Description" }), desc);
+  const saveDesc = async () => {
+    if (desc.value === (t.body || "")) return;      // nothing changed
+    if (!t.due_at && !t.due_mode) {
+      if (dueCard) dueCard.classList.add("needs-due");
+      return toast(new Error(
+        "Set a due first — pick a date or ASAP / Research / Hold in the sidebar, then save the description."));
+    }
+    await patch({ body: desc.value });
+    descBtn.textContent = "Saved ✓";
+    setTimeout(() => { descBtn.textContent = "Log description"; }, 1400);
+  };
+  const descBtn = el("button", { class: "btn btn-accent", text: "Log description", onclick: saveDesc });
+  main.append(el("div", { class: "section-label", text: "Description" }), desc,
+    el("div", { style: "margin-top:8px;display:flex;justify-content:flex-end" }, descBtn));
 
   // work-log tape (the signature)
   main.append(el("div", { class: "section-label", text: "Work log" }));
@@ -371,14 +389,39 @@ async function renderDetail(id) {
     onchange: () => patch({ priority: +prioSel.value }) },
     ...PRIO.map(([v, l]) => el("option", { value: v, text: l })));
   prioSel.value = t.priority;
+  // due: a triage bucket (ASAP / Research / Hold) or a concrete date — one or
+  // the other; picking either clears its counterpart.
+  const modeBar = el("div", { class: "due-modes" });
+  const refreshModes = () => {
+    for (const b of modeBar.children) b.classList.toggle("is-on", b.dataset.mode === t.due_mode);
+  };
   const dueInput = el("input", { type: "datetime-local", class: "field", "aria-label": "Due date",
     value: t.due_at ? t.due_at.slice(0, 16) : "",
-    onchange: () => patch({ due_at: dueInput.value ? dueInput.value : "" }) });
+    onchange: async () => {
+      await patch({ due_at: dueInput.value ? dueInput.value : "" });
+      if (dueInput.value) t.due_mode = "";
+      t.due_at = dueInput.value || null;
+      if (dueCard) dueCard.classList.remove("needs-due");
+      refreshModes();
+    } });
+  for (const [v, label] of DUE_MODES) {
+    modeBar.append(el("button", { class: "chip chip-mode", type: "button", "data-mode": v,
+      onclick: async () => {
+        const next = t.due_mode === v ? "" : v;         // click again to clear
+        await patch({ due_mode: next });
+        t.due_mode = next;
+        if (next) { t.due_at = null; dueInput.value = ""; }
+        if (dueCard) dueCard.classList.remove("needs-due");
+        refreshModes();
+      } }, label));
+  }
+  refreshModes();
 
-  side.append(el("div", { class: "card" },
+  dueCard = el("div", { class: "card" },
     el("div", { class: "ctl" }, el("label", { text: "Status" }), statusSel),
     el("div", { class: "ctl" }, el("label", { text: "Priority" }), prioSel),
-    el("div", { class: "ctl" }, el("label", { text: "Due" }), dueInput)));
+    el("div", { class: "ctl" }, el("label", { text: "Due" }), modeBar, dueInput));
+  side.append(dueCard);
 
   // tags editor
   const tagWrap = el("div", { class: "tag-edit" });

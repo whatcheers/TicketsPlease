@@ -103,15 +103,34 @@ def list_tickets(con, status=None, tag=None, overdue=None, q=None, sort="urgency
     return _sort(rows, sort)
 
 
+def _bucket(r):
+    """Urgency tier: overdue, then ASAP, then everything else, holds last."""
+    if r["overdue"]:
+        return 0
+    mode = r.get("due_mode") or ""
+    if mode == "asap":
+        return 1
+    if mode == "hold":
+        return 3
+    return 2
+
+
+def _due_key(r):
+    """A sortable stand-in date: ASAP is 'now-ish', hold/none sort last."""
+    mode = r.get("due_mode") or ""
+    if mode == "asap":
+        return datetime.min
+    return _parse(r["due_at"]) or datetime.max
+
+
 def _sort(rows, sort):
-    far = datetime.max
     keys = {
-        # Default: what's on fire first. Overdue on top, then priority, then the
-        # soonest due date, then oldest.
-        "urgency": lambda r: (not r["overdue"], r["priority"],
-                              _parse(r["due_at"]) or far, r["created_at"]),
-        "priority": lambda r: (r["priority"], _parse(r["due_at"]) or far),
-        "due": lambda r: (_parse(r["due_at"]) or far, r["priority"]),
+        # Default: what's on fire first. Overdue on top, then ASAP, then
+        # priority, then the soonest due date, then oldest. Holds sink.
+        "urgency": lambda r: (_bucket(r), r["priority"],
+                              _due_key(r), r["created_at"]),
+        "priority": lambda r: (r["priority"], _due_key(r)),
+        "due": lambda r: (_due_key(r), r["priority"]),
         "created": lambda r: r["created_at"],
         "updated": lambda r: r["updated_at"],
     }
@@ -169,7 +188,7 @@ def create_ticket(con, title, priority=3, body="", due_at=None, tags=None):
 
 
 # Fields a PATCH may touch, and how to coerce each.
-_EDITABLE = {"title", "body", "priority", "status", "due_at"}
+_EDITABLE = {"title", "body", "priority", "status", "due_at", "due_mode"}
 
 
 def update_ticket(con, tid, fields):
@@ -193,8 +212,17 @@ def update_ticket(con, tid, fields):
                 continue
         if key == "due_at":
             val = val or None            # "" clears the due date
+        if key == "due_mode" and val not in db.DUE_MODES:
+            continue
         sets.append(f"{key} = ?")
         args.append(val)
+
+    # A triage bucket and a concrete date are mutually exclusive — setting one
+    # clears the other (unless the same PATCH already set both explicitly).
+    if fields.get("due_mode") in db.DUE_MODES[1:] and "due_at" not in fields:
+        sets.append("due_at = NULL")
+    if fields.get("due_at") and "due_mode" not in fields:
+        sets.append("due_mode = ''")
 
     # resolved_at follows the status transition.
     if "status" in fields and fields["status"] in db.STATUSES:

@@ -96,6 +96,23 @@ class ApiTest(unittest.TestCase):
         st, got = self.req("GET", f"/api/attachments/{a['id']}")
         self.assertEqual(got, blob)
 
+    def test_due_modes(self):
+        # ASAP / Research / Hold live in due_mode, mutually exclusive with a
+        # concrete due date — setting one clears the other.
+        st, t = self.req("POST", "/api/tickets", {"title": "due-mode ticket"})
+        tid = t["id"]
+        st, t = self.req("PATCH", f"/api/tickets/{tid}", {"due_mode": "asap"})
+        self.assertEqual(t["due_mode"], "asap")
+        self.assertIsNone(t["due_at"])
+        st, t = self.req("PATCH", f"/api/tickets/{tid}", {"due_at": "2030-01-02T09:00"})
+        self.assertEqual(t["due_mode"], "")
+        self.assertEqual(t["due_at"], "2030-01-02T09:00")
+        st, t = self.req("PATCH", f"/api/tickets/{tid}", {"due_mode": "hold"})
+        self.assertEqual(t["due_mode"], "hold")
+        self.assertIsNone(t["due_at"])
+        st, t = self.req("PATCH", f"/api/tickets/{tid}", {"due_mode": "bogus"})
+        self.assertEqual(t["due_mode"], "hold")   # invalid mode ignored
+
     def test_restore_writes_safety_backup(self):
         # A restore is destructive, so it must first snapshot the current data
         # to data/backups/ — that snapshot is the undo.
