@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local ticket tracker — stdlib-only web server.
 
-  python app.py                     ->  http://localhost:5191
+  python app.py                     ->  http://localhost:5137
   python app.py --export FILE.json  ->  write a portable snapshot
   python app.py --import FILE.json  ->  restore a snapshot (replaces all data)
 
@@ -39,6 +39,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_get(parts[1:], parse_qs(url.query))
             else:
                 self.serve_static(url.path)
+        except ValueError as e:                 # e.g. a non-numeric id
+            self.send_json({"error": str(e)}, 400)
         except BrokenPipeError:
             pass
         except Exception as e:

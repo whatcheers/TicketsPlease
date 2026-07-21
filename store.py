@@ -11,6 +11,7 @@ import base64
 import json
 import re
 import shutil
+import sqlite3
 from datetime import datetime
 
 import db
@@ -83,10 +84,12 @@ def list_tickets(con, status=None, tag=None, overdue=None, q=None, sort="urgency
         args.append(tag)
 
     if q and _fts_query(q):
-        sql = ("SELECT t.* FROM tickets t "
-               "JOIN tickets_fts f ON f.rowid = t.id "
-               "WHERE tickets_fts MATCH ?")
-        args = [_fts_query(q)] + args
+        # Title/body via FTS, plus work-log notes via LIKE (small single-user
+        # tables — a scan is fine and keeps the notes out of the FTS triggers).
+        sql = ("SELECT t.* FROM tickets t WHERE t.id IN ("
+               "SELECT rowid FROM tickets_fts WHERE tickets_fts MATCH ? "
+               "UNION SELECT ticket_id FROM updates WHERE body LIKE ?)")
+        args = [_fts_query(q), "%" + q.strip() + "%"] + args
         if where:
             sql += " AND " + " AND ".join(where)
     else:
@@ -384,7 +387,12 @@ def import_data(con, data):
     try:
         for tbl in reversed(_TABLES):
             con.execute(f"DELETE FROM {tbl}")
-        con.execute("DELETE FROM sqlite_sequence")
+        # sqlite_sequence only exists once an AUTOINCREMENT insert has happened,
+        # so a restore into a freshly created DB must tolerate its absence.
+        try:
+            con.execute("DELETE FROM sqlite_sequence")
+        except sqlite3.OperationalError:
+            pass
         for tbl in _TABLES:
             for row in data.get(tbl, []):
                 cols = [c for c in row if c != "data_b64"]

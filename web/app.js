@@ -65,7 +65,7 @@ function fmtAge(s) {
 function fmtDue(iso) {
   const d = new Date(iso);
   const opt = { month: "short", day: "numeric" };
-  const hasTime = iso.slice(11, 16) !== "00:00";
+  const hasTime = iso.length >= 16 && iso.slice(11, 16) !== "00:00";
   if (hasTime) { opt.hour = "numeric"; opt.minute = "2-digit"; }
   return d.toLocaleString("en-US", opt);
 }
@@ -248,7 +248,10 @@ async function saveCurrentView() {
   const name = prompt("Name this view:");
   if (!name || !name.trim()) return;
   const filter = {};
-  if (!F.view.startsWith("custom:")) {
+  if (F.view.startsWith("custom:")) {
+    const v = SAVED.find((s) => "custom:" + s.id === F.view);
+    Object.assign(filter, v ? v.filter : {});
+  } else {
     const p = (VIEWS.find((v) => v.key === F.view) || {}).params || {};
     if (p.status) filter.status = p.status;
     if (p.overdue) filter.overdue = p.overdue;
@@ -269,7 +272,7 @@ async function renderDetail(id) {
   if (t.error) { location.hash = "#/"; return; }
 
   const patch = async (fields) => {
-    try { await mut("PATCH", "tickets/" + id, fields); }
+    try { await mut("PATCH", "tickets/" + id, fields); Object.assign(t, fields); }
     catch (e) { toast(e); }
   };
 
@@ -360,15 +363,15 @@ async function renderDetail(id) {
   // ── sidebar (controls + meta + tags) ──
   const side = el("div", { class: "d-side" });
 
-  const statusSel = el("select", { class: "field",
+  const statusSel = el("select", { class: "field", "aria-label": "Status",
     onchange: () => patch({ status: statusSel.value }) },
     ...STATUS.map(([v, l]) => el("option", { value: v, text: l })));
   statusSel.value = t.status;
-  const prioSel = el("select", { class: "field",
+  const prioSel = el("select", { class: "field", "aria-label": "Priority",
     onchange: () => patch({ priority: +prioSel.value }) },
     ...PRIO.map(([v, l]) => el("option", { value: v, text: l })));
   prioSel.value = t.priority;
-  const dueInput = el("input", { type: "datetime-local", class: "field",
+  const dueInput = el("input", { type: "datetime-local", class: "field", "aria-label": "Due date",
     value: t.due_at ? t.due_at.slice(0, 16) : "",
     onchange: () => patch({ due_at: dueInput.value ? dueInput.value : "" }) });
 
@@ -391,7 +394,7 @@ async function renderDetail(id) {
             await patch({ tags: names }); t = await api("tickets/" + id); renderTags();
           } })));
     }
-    const add = el("input", { class: "tag-add", placeholder: "+ tag",
+    const add = el("input", { class: "tag-add", placeholder: "+ tag", "aria-label": "Add tag",
       onkeydown: async (e) => {
         if (e.key !== "Enter" || !add.value.trim()) return;
         const names = [...t.tags.map((x) => x.name), add.value.trim()];
