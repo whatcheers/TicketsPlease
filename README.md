@@ -1,4 +1,4 @@
-# Triage — a local IT ticket desk
+# TicketsPlease — a local IT ticket desk
 
 A single-operator ticket tracker for time-sensitive IT work. No cloud, no login,
 no accounts, no dependencies — just Python's standard library and a SQLite file.
@@ -33,6 +33,10 @@ Requires Python 3.8+. Nothing to install — `pip` is never involved.
   vendor") as one-click chips.
 - **Attachments** — paste a screenshot, drop a file, or browse. Stored on disk.
 - **Search** — full-text over titles and notes.
+- **Trash** — deleting a ticket moves it to the Trash view, where it can be
+  restored or deleted forever. Nothing is destroyed by a single click.
+- **Auto-close** — a *Resolved* ticket closes itself 24 hours later (the
+  countdown shows on the ticket). Reopening it cancels the countdown.
 
 ## Where your data lives
 

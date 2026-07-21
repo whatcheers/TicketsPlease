@@ -85,7 +85,8 @@ class Handler(BaseHTTPRequestHandler):
                 data = store.list_tickets(
                     con, status=statuses, tag=one("tag"),
                     overdue=one("overdue") in ("1", "true"),
-                    q=one("q"), sort=one("sort", "urgency"))
+                    q=one("q"), sort=one("sort", "urgency"),
+                    trash=one("trash") in ("1", "true"))
                 return self.send_json({"tickets": data})
             if len(parts) == 2 and parts[0] == "tickets":
                 t = store.get_ticket(con, int(parts[1]))
@@ -110,6 +111,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(store.create_ticket(
                 con, b.get("title"), b.get("priority", 3), b.get("body", ""),
                 b.get("due_at"), b.get("tags")), 201)
+        if len(parts) == 3 and parts[0] == "tickets" and parts[2] == "restore":
+            t = store.restore_ticket(con, int(parts[1]))
+            return self.send_json(t) if t else self.send_json(
+                {"error": "not found"}, 404)
         if len(parts) == 3 and parts[0] == "tickets" and parts[2] == "updates":
             t = store.add_update(con, int(parts[1]), self._json().get("body"))
             return self.send_json(t) if t else self.send_json(
@@ -146,6 +151,12 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── DELETE /api/* ─────────────────────────────────────
     def api_delete(self, parts, q, con):
+        # tickets delete = move to trash; ?purge=1 deletes forever.
+        if len(parts) == 2 and parts[0] == "tickets" and \
+                q.get("purge", ["0"])[0] in ("1", "true"):
+            ok = store.purge_ticket(con, int(parts[1]))
+            return self.send_json({"ok": True}) if ok else self.send_json(
+                {"error": "not found"}, 404)
         table = {"tickets": store.delete_ticket, "attachments": store.delete_attachment,
                  "tags": store.delete_tag, "views": store.delete_view}
         if len(parts) == 2 and parts[0] in table:

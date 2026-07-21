@@ -114,6 +114,41 @@ class ApiTest(unittest.TestCase):
         st, t = self.req("PATCH", f"/api/tickets/{tid}", {"due_mode": "asap"})
         self.assertEqual(t["due_mode"], "hold")   # not a mode — ignored
 
+    def test_autoclose_after_24h(self):
+        # Resolved tickets close themselves once resolved_at is 24h old.
+        st, t = self.req("POST", "/api/tickets", {"title": "autoclose me"})
+        tid = t["id"]
+        st, t = self.req("PATCH", f"/api/tickets/{tid}", {"status": "resolved"})
+        self.assertEqual(t["status"], "resolved")
+        from datetime import datetime, timedelta
+        stale = (datetime.now() - timedelta(hours=25)).isoformat()
+        con = db.connect()
+        con.execute("UPDATE tickets SET resolved_at = ? WHERE id = ?", (stale, tid))
+        con.commit(); con.close()
+        st, t = self.req("GET", f"/api/tickets/{tid}")
+        self.assertEqual(t["status"], "closed")
+
+    def test_trash(self):
+        # Delete moves to trash (recoverable); purge is the only hard delete.
+        st, t = self.req("POST", "/api/tickets", {"title": "trash me"})
+        tid = t["id"]
+        st, _ = self.req("DELETE", f"/api/tickets/{tid}")
+        self.assertEqual(st, 200)
+        st, lst = self.req("GET", "/api/tickets")
+        self.assertNotIn(tid, [x["id"] for x in lst["tickets"]])
+        st, lst = self.req("GET", "/api/tickets?trash=1")
+        self.assertIn(tid, [x["id"] for x in lst["tickets"]])
+        st, t = self.req("POST", f"/api/tickets/{tid}/restore")
+        self.assertEqual(st, 200)
+        self.assertIsNone(t["deleted_at"])
+        st, lst = self.req("GET", "/api/tickets")
+        self.assertIn(tid, [x["id"] for x in lst["tickets"]])
+        st, _ = self.req("DELETE", f"/api/tickets/{tid}")
+        st, _ = self.req("DELETE", f"/api/tickets/{tid}?purge=1")
+        self.assertEqual(st, 200)
+        st, _ = self.req("GET", f"/api/tickets/{tid}")
+        self.assertEqual(st, 404)
+
     def test_restore_writes_safety_backup(self):
         # A restore is destructive, so it must first snapshot the current data
         # to data/backups/ — that snapshot is the undo.

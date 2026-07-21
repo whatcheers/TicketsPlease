@@ -57,6 +57,7 @@ const VIEWS = [
   { key: "waiting", label: "Waiting", params: { status: "waiting" }, stat: "waiting" },
   { key: "done", label: "Done", params: { status: "resolved,closed" } },
   { key: "all", label: "All", params: {} },
+  { key: "trash", label: "Trash", params: { trash: "1" }, stat: "trash" },
 ];
 
 let F = { view: "open", tag: null, q: "", sort: "urgency" };
@@ -79,6 +80,12 @@ function fmtDue(iso) {
 function fmtStamp(iso) {
   return new Date(iso).toLocaleString("en-US",
     { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+function fmtCloseIn(resolvedIso) {   // resolved tickets auto-close 24h later
+  const ms = new Date(resolvedIso).getTime() + 24 * 3600e3 - Date.now();
+  if (ms <= 0) return "closing…";
+  const h = Math.floor(ms / 3600e3);
+  return "closes in " + (h >= 1 ? h + "h" : Math.max(1, Math.round(ms / 60e3)) + "m");
 }
 
 /* ── mount helper ─────────────────────────────────────── */
@@ -232,10 +239,14 @@ function ticketRow(t) {
   const side = el("div", { class: "t-side" });
   if (t.due_at) side.append(el("span", { class: "t-due" + (t.overdue ? " over" : ""), text: (t.overdue ? "overdue · " : "due ") + fmtDue(t.due_at) }));
   else if (t.due_mode) side.append(el("span", { class: "t-due mode-" + t.due_mode, text: DUE_MODE_LABEL[t.due_mode] || t.due_mode }));
+  if (t.status === "resolved" && t.resolved_at) {
+    side.append(el("span", { class: "t-close", text: fmtCloseIn(t.resolved_at) }));
+  }
   side.append(el("span", { class: "t-age", text: fmtAge(t.age_seconds) }));
 
   return el("button", {
-    class: "trow" + (t.overdue ? " is-overdue" : "") + (done ? " is-done" : ""),
+    class: "trow" + (t.overdue ? " is-overdue" : "")
+      + (done || t.deleted_at ? " is-done" : ""),
     onclick: () => { location.hash = "#/t/" + t.id; },
   },
     el("span", { class: "spine p" + t.priority }),
@@ -287,6 +298,23 @@ async function renderDetail(id) {
   const root = el("div", {});
   root.append(el("div", { class: "detail-top" },
     el("a", { class: "back", href: "#/" }, el("span", { text: "←" }), document.createTextNode("All tickets"))));
+
+  if (t.deleted_at) {
+    root.append(el("div", { class: "trash-banner" },
+      el("span", { text: "This ticket is in the trash." }),
+      el("span", { class: "spacer" }),
+      el("button", { class: "btn", text: "Restore",
+        onclick: async () => {
+          try { await mut("POST", "tickets/" + id + "/restore"); renderDetail(id); }
+          catch (e) { toast(e); }
+        } }),
+      el("button", { class: "btn btn-danger", text: "Delete forever",
+        onclick: async () => {
+          if (!confirm("Permanently delete this ticket, its notes, and attachments? This can't be undone.")) return;
+          try { await mut("DELETE", "tickets/" + id + "?purge=1"); location.hash = "#/"; }
+          catch (e) { toast(e); }
+        } })));
+  }
 
   // ── main column ──
   const titleInput = el("input", {
@@ -478,11 +506,12 @@ async function renderDetail(id) {
     metaRow("Updated", fmtStamp(t.updated_at)),
     metaRow("Age", fmtAge(t.age_seconds), t.overdue),
     t.resolved_at ? metaRow("Resolved", fmtStamp(t.resolved_at)) : null,
-    el("button", {
+    t.status === "resolved" && t.resolved_at
+      ? metaRow("Auto-close", fmtCloseIn(t.resolved_at)) : null,
+    t.deleted_at ? null : el("button", {
       class: "btn btn-danger", style: "margin-top:12px;width:100%",
-      text: "Delete ticket",
+      text: "Move to trash",
       onclick: async () => {
-        if (!confirm("Delete this ticket and its notes/attachments? This can't be undone.")) return;
         try { await mut("DELETE", "tickets/" + id); location.hash = "#/"; }
         catch (e) { toast(e); }
       },
@@ -552,9 +581,9 @@ document.getElementById("restoreFile").addEventListener("change", async (e) => {
   if (!f) return;
   let data;
   try { data = JSON.parse(await f.text()); }
-  catch { return toast(new Error("That file isn't valid JSON — pick a Triage backup.")); }
+  catch { return toast(new Error("That file isn't valid JSON — pick a TicketsPlease backup.")); }
   if (!data || !Array.isArray(data.tickets)) {
-    return toast(new Error("That file isn't a Triage backup — no tickets in it."));
+    return toast(new Error("That file isn't a TicketsPlease backup — no tickets in it."));
   }
   if (!confirm('Restore "' + f.name + '" (' + data.tickets.length + " tickets)?\n\n" +
       "This replaces ALL current data. A safety snapshot of the current data " +

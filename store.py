@@ -12,7 +12,7 @@ import json
 import re
 import shutil
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import db
 
@@ -65,6 +65,22 @@ def _ticket_dict(con, row, now_dt, detail=False):
 
 # ── tickets: read ─────────────────────────────────────────
 
+AUTOCLOSE_HOURS = 24
+
+
+def _autoclose(con):
+    """Resolved tickets close themselves after AUTOCLOSE_HOURS.
+
+    Swept lazily on every read, so no timer is needed — a ticket can never be
+    *seen* as resolved past its window."""
+    cutoff = (datetime.now() - timedelta(hours=AUTOCLOSE_HOURS)).isoformat()
+    cur = con.execute(
+        "UPDATE tickets SET status = 'closed', updated_at = ? "
+        "WHERE status = 'resolved' AND deleted_at IS NULL AND resolved_at <= ?",
+        (now(), cutoff))
+    if cur.rowcount:
+        con.commit()
+
 def _fts_query(q):
     # Per-token prefix match, each token quoted so punctuation can't blow up the
     # FTS grammar. "foo bar" -> '"foo"* "bar"*'.
@@ -72,9 +88,12 @@ def _fts_query(q):
     return " ".join(f'"{t}"*' for t in toks)
 
 
-def list_tickets(con, status=None, tag=None, overdue=None, q=None, sort="urgency"):
+def list_tickets(con, status=None, tag=None, overdue=None, q=None,
+                 sort="urgency", trash=False):
+    _autoclose(con)
     now_dt = datetime.now()
-    where, args = [], []
+    where = ["t.deleted_at IS NOT NULL" if trash else "t.deleted_at IS NULL"]
+    args = []
     if status:                       # list of allowed statuses
         where.append("t.status IN (%s)" % ",".join("?" * len(status)))
         args += list(status)
@@ -90,12 +109,9 @@ def list_tickets(con, status=None, tag=None, overdue=None, q=None, sort="urgency
                "SELECT rowid FROM tickets_fts WHERE tickets_fts MATCH ? "
                "UNION SELECT ticket_id FROM updates WHERE body LIKE ?)")
         args = [_fts_query(q), "%" + q.strip() + "%"] + args
-        if where:
-            sql += " AND " + " AND ".join(where)
+        sql += " AND " + " AND ".join(where)
     else:
-        sql = "SELECT t.* FROM tickets t"
-        if where:
-            sql += " WHERE " + " AND ".join(where)
+        sql = "SELECT t.* FROM tickets t WHERE " + " AND ".join(where)
 
     rows = [_ticket_dict(con, r, now_dt) for r in con.execute(sql, args).fetchall()]
     if overdue:
@@ -132,6 +148,7 @@ def _sort(rows, sort):
 
 
 def get_ticket(con, tid):
+    _autoclose(con)
     row = con.execute("SELECT * FROM tickets WHERE id = ?", (tid,)).fetchone()
     if not row:
         return None
@@ -237,6 +254,28 @@ def update_ticket(con, tid, fields):
 
 
 def delete_ticket(con, tid):
+    """Move to trash — recoverable with restore_ticket until purged."""
+    row = con.execute("SELECT id FROM tickets WHERE id = ?", (tid,)).fetchone()
+    if not row:
+        return False
+    con.execute("UPDATE tickets SET deleted_at = ? WHERE id = ?", (now(), tid))
+    con.commit()
+    return True
+
+
+def restore_ticket(con, tid):
+    """Bring a ticket back from the trash."""
+    row = con.execute("SELECT id FROM tickets WHERE id = ? "
+                      "AND deleted_at IS NOT NULL", (tid,)).fetchone()
+    if not row:
+        return None
+    con.execute("UPDATE tickets SET deleted_at = NULL WHERE id = ?", (tid,))
+    con.commit()
+    return get_ticket(con, tid)
+
+
+def purge_ticket(con, tid):
+    """Permanent delete — removes the row, its children, and its files."""
     row = con.execute("SELECT id FROM tickets WHERE id = ?", (tid,)).fetchone()
     if not row:
         return False
@@ -367,9 +406,11 @@ def delete_view(con, vid):
 # ── stats (the summary strip) ─────────────────────────────
 
 def stats(con):
+    _autoclose(con)
     now_dt = datetime.now()
     rows = [_ticket_dict(con, r, now_dt) for r in
-            con.execute("SELECT * FROM tickets").fetchall()]
+            con.execute("SELECT * FROM tickets "
+                        "WHERE deleted_at IS NULL").fetchall()]
     active = [r for r in rows if r["status"] in db.ACTIVE_STATUSES]
     today = now_dt.date().isoformat()
     due_today = sum(1 for r in active
@@ -380,6 +421,8 @@ def stats(con):
         "waiting": sum(1 for r in active if r["status"] == "waiting"),
         "due_today": due_today,
         "total": len(rows),
+        "trash": con.execute("SELECT COUNT(*) AS n FROM tickets "
+                             "WHERE deleted_at IS NOT NULL").fetchone()["n"],
     }
 
 

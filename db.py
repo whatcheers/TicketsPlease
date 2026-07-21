@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   updated_at  TEXT    NOT NULL,
   due_at      TEXT,
   due_mode    TEXT    NOT NULL DEFAULT '',
-  resolved_at TEXT
+  resolved_at TEXT,
+  deleted_at  TEXT                          -- set = in the trash
 );
 
 CREATE TABLE IF NOT EXISTS tags (
@@ -122,6 +123,8 @@ def init_db():
         if "due_mode" not in cols:
             con.execute("ALTER TABLE tickets "
                         "ADD COLUMN due_mode TEXT NOT NULL DEFAULT ''")
+        if "deleted_at" not in cols:
+            con.execute("ALTER TABLE tickets ADD COLUMN deleted_at TEXT")
         # 'asap' was briefly a mode; it now means "due today".
         from datetime import datetime
         eod = datetime.now().replace(hour=23, minute=59, second=0,
