@@ -20,9 +20,10 @@ PRIORITIES = (1, 2, 3, 4)
 STATUSES = ("open", "in_progress", "waiting", "resolved", "closed")
 ACTIVE_STATUSES = ("open", "in_progress", "waiting")   # "not done yet"
 
-# due_mode: the triage bucket when there is no concrete date. Mutually
-# exclusive with due_at — '' means "use due_at (or nothing)".
-DUE_MODES = ("", "asap", "research", "hold")
+# due_mode: the no-date triage states. Mutually exclusive with due_at —
+# '' means "use due_at (or nothing)". ASAP is not a mode: it's a UI
+# shortcut that sets due_at to today.
+DUE_MODES = ("", "research", "hold")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tickets (
@@ -121,6 +122,12 @@ def init_db():
         if "due_mode" not in cols:
             con.execute("ALTER TABLE tickets "
                         "ADD COLUMN due_mode TEXT NOT NULL DEFAULT ''")
+        # 'asap' was briefly a mode; it now means "due today".
+        from datetime import datetime
+        eod = datetime.now().replace(hour=23, minute=59, second=0,
+                                     microsecond=0).isoformat()
+        con.execute("UPDATE tickets SET due_at = ?, due_mode = '' "
+                    "WHERE due_mode = 'asap'", (eod,))
         con.commit()
     finally:
         con.close()

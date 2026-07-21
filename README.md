@@ -20,13 +20,13 @@ Requires Python 3.8+. Nothing to install — `pip` is never involved.
 
 - **Quick-add** — type a title, press Enter, done.
 - **Priority (P1–P4), status, and due dates**, with **overdue tickets flagged
-  and sorted to the top**. Instead of a date, a ticket can be marked **ASAP**
-  (sorts just under overdue), **Research**, or **Hold** (sinks to the bottom).
-  Default sort is *urgency*: overdue first, then ASAP, then priority, then
-  soonest due.
+  and sorted to the top**. The due chooser has an **ASAP** shortcut (= due
+  today), or a ticket can be marked **Research** or **Hold** (no date; holds
+  sink to the bottom). Default sort is *urgency*: overdue first, then
+  priority, then soonest due.
 - **Descriptions are saved deliberately** — the *Log description* button won't
-  save until the ticket has a due date or one of ASAP / Research / Hold, so
-  nothing gets written up without being triaged.
+  save until the ticket has a due date (ASAP counts — it's today) or is marked
+  Research / Hold, so nothing gets written up without being triaged.
 - **Work log** — an append-only, timestamped list of notes per ticket. This is
   your record of what you tried, in order.
 - **Tags + saved views** — label tickets and save filters (e.g. "Waiting on

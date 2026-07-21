@@ -104,22 +104,14 @@ def list_tickets(con, status=None, tag=None, overdue=None, q=None, sort="urgency
 
 
 def _bucket(r):
-    """Urgency tier: overdue, then ASAP, then everything else, holds last."""
+    """Urgency tier: overdue first, holds last, everything else between."""
     if r["overdue"]:
         return 0
-    mode = r.get("due_mode") or ""
-    if mode == "asap":
-        return 1
-    if mode == "hold":
-        return 3
-    return 2
+    return 2 if (r.get("due_mode") or "") == "hold" else 1
 
 
 def _due_key(r):
-    """A sortable stand-in date: ASAP is 'now-ish', hold/none sort last."""
-    mode = r.get("due_mode") or ""
-    if mode == "asap":
-        return datetime.min
+    """A sortable stand-in date: undated (research/none) sorts last."""
     return _parse(r["due_at"]) or datetime.max
 
 

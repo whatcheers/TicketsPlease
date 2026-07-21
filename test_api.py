@@ -97,12 +97,13 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(got, blob)
 
     def test_due_modes(self):
-        # ASAP / Research / Hold live in due_mode, mutually exclusive with a
-        # concrete due date — setting one clears the other.
+        # Research / Hold live in due_mode, mutually exclusive with a concrete
+        # due date — setting one clears the other. ASAP is not a mode (the UI
+        # turns it into a due date of today).
         st, t = self.req("POST", "/api/tickets", {"title": "due-mode ticket"})
         tid = t["id"]
-        st, t = self.req("PATCH", f"/api/tickets/{tid}", {"due_mode": "asap"})
-        self.assertEqual(t["due_mode"], "asap")
+        st, t = self.req("PATCH", f"/api/tickets/{tid}", {"due_mode": "research"})
+        self.assertEqual(t["due_mode"], "research")
         self.assertIsNone(t["due_at"])
         st, t = self.req("PATCH", f"/api/tickets/{tid}", {"due_at": "2030-01-02T09:00"})
         self.assertEqual(t["due_mode"], "")
@@ -110,8 +111,8 @@ class ApiTest(unittest.TestCase):
         st, t = self.req("PATCH", f"/api/tickets/{tid}", {"due_mode": "hold"})
         self.assertEqual(t["due_mode"], "hold")
         self.assertIsNone(t["due_at"])
-        st, t = self.req("PATCH", f"/api/tickets/{tid}", {"due_mode": "bogus"})
-        self.assertEqual(t["due_mode"], "hold")   # invalid mode ignored
+        st, t = self.req("PATCH", f"/api/tickets/{tid}", {"due_mode": "asap"})
+        self.assertEqual(t["due_mode"], "hold")   # not a mode — ignored
 
     def test_restore_writes_safety_backup(self):
         # A restore is destructive, so it must first snapshot the current data

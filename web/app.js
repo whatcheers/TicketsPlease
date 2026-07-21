@@ -43,8 +43,13 @@ const STATUS = [
 ];
 const PRIO = [[1, "P1 · Critical"], [2, "P2 · High"], [3, "P3 · Normal"], [4, "P4 · Low"]];
 const statusText = (s) => s.replace("_", " ");
-const DUE_MODES = [["asap", "ASAP"], ["research", "Research"], ["hold", "Hold"]];
-const DUE_MODE_LABEL = { asap: "ASAP", research: "research", hold: "hold" };
+const DUE_MODES = [["research", "Research"], ["hold", "Hold"]];
+const DUE_MODE_LABEL = { research: "research", hold: "hold" };
+function todayEOD() {           // "due today" = end of today, local clock
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T23:59";
+}
 
 const VIEWS = [
   { key: "open", label: "Open", params: { status: "open,in_progress,waiting" }, stat: "open" },
@@ -308,7 +313,7 @@ async function renderDetail(id) {
     if (!t.due_at && !t.due_mode) {
       if (dueCard) dueCard.classList.add("needs-due");
       return toast(new Error(
-        "Set a due first — pick a date or ASAP / Research / Hold in the sidebar, then save the description."));
+        "Set a due date first (ASAP = today), or mark the ticket Research / Hold — then save the description."));
     }
     await patch({ body: desc.value });
     descBtn.textContent = "Saved ✓";
@@ -393,7 +398,13 @@ async function renderDetail(id) {
   // the other; picking either clears its counterpart.
   const modeBar = el("div", { class: "due-modes" });
   const refreshModes = () => {
-    for (const b of modeBar.children) b.classList.toggle("is-on", b.dataset.mode === t.due_mode);
+    for (const b of modeBar.children) {
+      if (b.dataset.mode === "asap") {       // lit while the due date is today
+        b.classList.toggle("is-on", !!t.due_at && t.due_at.slice(0, 10) === todayEOD().slice(0, 10));
+      } else {
+        b.classList.toggle("is-on", b.dataset.mode === t.due_mode);
+      }
+    }
   };
   const dueInput = el("input", { type: "datetime-local", class: "field", "aria-label": "Due date",
     value: t.due_at ? t.due_at.slice(0, 16) : "",
@@ -404,6 +415,17 @@ async function renderDetail(id) {
       if (dueCard) dueCard.classList.remove("needs-due");
       refreshModes();
     } });
+  // ASAP is a date shortcut — it just means "due today".
+  modeBar.append(el("button", { class: "chip chip-mode", type: "button", "data-mode": "asap",
+    title: "Due today",
+    onclick: async () => {
+      const eod = todayEOD();
+      await patch({ due_at: eod });
+      t.due_at = eod; t.due_mode = "";
+      dueInput.value = eod;
+      if (dueCard) dueCard.classList.remove("needs-due");
+      refreshModes();
+    } }, "ASAP"));
   for (const [v, label] of DUE_MODES) {
     modeBar.append(el("button", { class: "chip chip-mode", type: "button", "data-mode": v,
       onclick: async () => {
