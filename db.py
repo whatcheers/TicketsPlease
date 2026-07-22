@@ -7,6 +7,7 @@ portable copy) happens in one spot. Everything under DATA/ is runtime state and
 gitignored; the code in this repo is the whole app.
 """
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -25,6 +26,14 @@ ACTIVE_STATUSES = ("open", "in_progress", "waiting")   # "not done yet"
 # shortcut that sets due_at to today.
 DUE_MODES = ("", "research", "hold")
 
+# Default SLA per priority, in hours: how long after creation a ticket is due
+# when auto-due is on. Editable in Settings; these are just the seed values.
+DEFAULT_AUTODUE_HOURS = {1: 4, 2: 24, 3: 72, 4: 168}
+DEFAULT_SETTINGS = {
+    "autodue_enabled": "1",
+    "autodue_hours": json.dumps({str(p): DEFAULT_AUTODUE_HOURS[p] for p in PRIORITIES}),
+}
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tickets (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +46,26 @@ CREATE TABLE IF NOT EXISTS tickets (
   due_at      TEXT,
   due_mode    TEXT    NOT NULL DEFAULT '',
   resolved_at TEXT,
-  deleted_at  TEXT                          -- set = in the trash
+  deleted_at  TEXT,                         -- set = in the trash
+  user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL   -- the requester
+);
+
+-- End users / requesters — you enter these yourself. A ticket may point at one
+-- (tickets.user_id); deleting a user just clears that pointer, never a ticket.
+CREATE TABLE IF NOT EXISTS users (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL,
+  email      TEXT NOT NULL DEFAULT '',
+  phone      TEXT NOT NULL DEFAULT '',
+  dept       TEXT NOT NULL DEFAULT '',      -- department / location
+  notes      TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+-- Simple key/value app settings (e.g. auto-due SLA hours per priority).
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS tags (
@@ -77,6 +105,8 @@ CREATE TABLE IF NOT EXISTS views (
 
 CREATE INDEX IF NOT EXISTS idx_updates_ticket     ON updates(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_ticket ON attachments(ticket_id);
+-- NB: idx_tickets_user is created after the migration below, not here — on a
+-- pre-existing DB the tickets table has no user_id column until we ALTER it in.
 
 -- Full-text over the searchable ticket fields (matches the FTS5 pattern the
 -- votes DB uses). Kept in sync by triggers so a plain INSERT/UPDATE just works.
@@ -125,6 +155,18 @@ def init_db():
                         "ADD COLUMN due_mode TEXT NOT NULL DEFAULT ''")
         if "deleted_at" not in cols:
             con.execute("ALTER TABLE tickets ADD COLUMN deleted_at TEXT")
+        # Migration for databases created before requesters existed. (SQLite
+        # can't add a column with a FK, so it's a plain nullable INTEGER — the
+        # ON DELETE SET NULL rule only applies to freshly created DBs, which is
+        # fine: user deletes go through the store, which clears the pointer.)
+        if "user_id" not in cols:
+            con.execute("ALTER TABLE tickets ADD COLUMN user_id INTEGER")
+        # Now that user_id is guaranteed present (fresh or migrated), index it.
+        con.execute("CREATE INDEX IF NOT EXISTS idx_tickets_user ON tickets(user_id)")
+        # Seed default settings without clobbering any the user has changed.
+        for k, v in DEFAULT_SETTINGS.items():
+            con.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",
+                        (k, v))
         # 'asap' was briefly a mode; it now means "due today".
         from datetime import datetime
         eod = datetime.now().replace(hour=23, minute=59, second=0,

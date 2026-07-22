@@ -36,6 +36,11 @@ async function mut(method, path, body) {
   return r.status === 204 ? null : r.json().catch(() => null);
 }
 
+async function usersList(force) {
+  if (force || !USER_CACHE) USER_CACHE = (await api("users")).users;
+  return USER_CACHE;
+}
+
 /* ── vocab ────────────────────────────────────────────── */
 const STATUS = [
   ["open", "Open"], ["in_progress", "In progress"], ["waiting", "Waiting"],
@@ -60,8 +65,9 @@ const VIEWS = [
   { key: "trash", label: "Trash", params: { trash: "1" }, stat: "trash" },
 ];
 
-let F = { view: "open", tag: null, q: "", sort: "urgency" };
+let F = { view: "open", tag: null, user: null, q: "", sort: "urgency" };
 let SAVED = [];   // custom saved views from the server
+let USER_CACHE = null;   // [{id,name,...}] — lazily loaded for pickers
 
 /* ── formatting ───────────────────────────────────────── */
 function fmtAge(s) {
@@ -108,6 +114,7 @@ function resolveParams() {
     base = { ...(VIEWS.find((v) => v.key === F.view) || {}).params };
   }
   if (F.tag) base.tag = F.tag;
+  if (F.user) base.user = F.user;
   if (F.q) base.q = F.q;
   base.sort = F.sort;
   const qs = Object.entries(base)
@@ -200,6 +207,13 @@ async function renderList() {
       onclick: () => { F.tag = null; renderList(); },
     }, document.createTextNode("#" + F.tag), el("span", { class: "x", style: "margin-left:7px", text: "✕" })));
   }
+  if (F.user) {
+    bar.append(el("button", {
+      class: "chip is-on", title: "Clear requester filter",
+      onclick: () => { F.user = null; F.userName = null; renderList(); },
+    }, document.createTextNode("👤 " + (F.userName || "requester")),
+      el("span", { class: "x", style: "margin-left:7px", text: "✕" })));
+  }
 
   bar.append(el("span", { class: "spacer" }));
   const sortSel = el("select", {
@@ -234,6 +248,15 @@ function ticketRow(t) {
   const meta = el("div", { class: "t-meta" },
     el("span", { class: "ptag p" + t.priority, text: "P" + t.priority }),
     el("span", { class: "pill " + t.status, text: statusText(t.status) }));
+  if (t.user) {
+    meta.append(el("span", {
+      class: "who", title: "Filter to " + t.user.name,
+      onclick: (e) => {
+        e.stopPropagation();
+        F.user = t.user.id; F.userName = t.user.name; F.view = "all"; renderList();
+      },
+    }, el("span", { class: "who-ico", text: "👤" }), document.createTextNode(t.user.name)));
+  }
   for (const tag of t.tags) meta.append(tagChip(tag, () => { F.tag = tag.name; F.view = "all"; renderList(); }));
 
   const side = el("div", { class: "t-side" });
@@ -499,6 +522,38 @@ async function renderDetail(id) {
   side.append(el("div", { class: "card" },
     el("div", { class: "section-label", text: "Tags" }), tagWrap));
 
+  // requester — who reported this. Pick from the People database, or add one.
+  const reqCard = el("div", { class: "card" },
+    el("div", { class: "section-label", text: "Requester" }));
+  const reqSel = el("select", { class: "field", "aria-label": "Requester" });
+  const fillReq = (users) => {
+    reqSel.replaceChildren(el("option", { value: "", text: "— none —" }));
+    for (const u of users) reqSel.append(el("option", { value: String(u.id), text: u.name }));
+    reqSel.append(el("option", { value: "__new", text: "＋ Add a new person…" }));
+    reqSel.value = t.user ? String(t.user.id) : "";
+  };
+  reqCard.append(reqSel);
+  const reqMeta = el("div", { class: "req-meta" });
+  const showReqMeta = () => {
+    reqMeta.replaceChildren();
+    if (!t.user) return;
+    if (t.user.email) reqMeta.append(metaRow("Email", t.user.email));
+    if (t.user.phone) reqMeta.append(metaRow("Phone", t.user.phone));
+    if (t.user.dept) reqMeta.append(metaRow("Dept", t.user.dept));
+  };
+  reqSel.addEventListener("change", async () => {
+    if (reqSel.value === "__new") { location.hash = "#/people"; return; }
+    const uid = reqSel.value ? +reqSel.value : null;
+    await patch({ user_id: uid });
+    const users = await usersList(true);
+    t.user = users.find((u) => u.id === uid) || null;
+    fillReq(users);
+    showReqMeta();
+  });
+  reqCard.append(reqMeta);
+  side.append(reqCard);
+  usersList().then((users) => { fillReq(users); showReqMeta(); });
+
   // meta
   side.append(el("div", { class: "card" },
     el("div", { class: "section-label", text: "Details" }),
@@ -564,11 +619,151 @@ async function uploadFiles(ticketId, files) {
   } catch (e) { toast(e); }
 }
 
+/* ── people (end users / requesters) ──────────────────── */
+async function renderPeople() {
+  mount(el("div", { class: "notice loading", text: "Loading…" }));
+  let users;
+  try { users = await usersList(true); }
+  catch (e) { return toast(e); }
+
+  const root = el("div", {});
+  root.append(el("div", { class: "detail-top" },
+    el("a", { class: "back", href: "#/" }, el("span", { text: "←" }),
+      document.createTextNode("All tickets"))));
+  root.append(el("h1", { class: "page-title", text: "People" }),
+    el("p", { class: "page-sub",
+      text: "Your end users. Add them as you go, then attach one to a ticket to track who's affected." }));
+
+  // add form
+  const f = {};
+  const input = (key, ph, type) => (f[key] = el("input", {
+    class: "field", type: type || "text", placeholder: ph, "aria-label": ph,
+  }));
+  const addBtn = el("button", { class: "btn btn-accent", text: "Add person",
+    onclick: async () => {
+      const body = {};
+      for (const k of ["name", "email", "phone", "dept", "notes"]) body[k] = f[k].value.trim();
+      if (!body.name) return toast(new Error("A name is required."));
+      try { await mut("POST", "users", body); renderPeople(); }
+      catch (e) { toast(e); }
+    } });
+  root.append(el("div", { class: "card person-form" },
+    el("div", { class: "section-label", text: "Add a person" }),
+    el("div", { class: "person-grid" },
+      input("name", "Name *"), input("email", "Email", "email"),
+      input("phone", "Phone", "tel"), input("dept", "Department / location")),
+    input("notes", "Notes"),
+    el("div", { style: "margin-top:10px;display:flex;justify-content:flex-end" }, addBtn)));
+
+  // roster
+  if (!users.length) {
+    root.append(el("div", { class: "notice" },
+      el("div", { class: "big", text: "No people yet." }),
+      el("div", { class: "sub", text: "Add your first end user above." })));
+  }
+  for (const u of users) root.append(personCard(u));
+  mount(root);
+}
+
+function personCard(u) {
+  const fields = {};
+  const row = (key, label, type) => {
+    const inp = fields[key] = el("input", {
+      class: "field", type: type || "text", value: u[key] || "", "aria-label": label,
+    });
+    return el("div", { class: "ctl" }, el("label", { text: label }), inp);
+  };
+  const count = u.ticket_count || 0;
+  const card = el("div", { class: "card person-card" },
+    el("div", { class: "person-head" },
+      el("span", { class: "person-name", text: u.name }),
+      el("button", { class: "chip", title: "See this person's tickets",
+        text: count + (count === 1 ? " ticket" : " tickets"),
+        onclick: () => { F.user = u.id; F.userName = u.name; F.view = "all"; location.hash = "#/"; } })),
+    el("div", { class: "person-grid" },
+      row("name", "Name"), row("email", "Email", "email"),
+      row("phone", "Phone", "tel"), row("dept", "Department / location")),
+    row("notes", "Notes"),
+    el("div", { class: "person-actions" },
+      el("button", { class: "btn btn-accent", text: "Save",
+        onclick: async () => {
+          const body = {};
+          for (const k of ["name", "email", "phone", "dept", "notes"]) body[k] = fields[k].value.trim();
+          if (!body.name) return toast(new Error("A name is required."));
+          try {
+            await mut("PATCH", "users/" + u.id, body);
+            const btn = card.querySelector(".btn-accent");
+            btn.textContent = "Saved ✓"; setTimeout(() => { btn.textContent = "Save"; }, 1400);
+            USER_CACHE = null;
+          } catch (e) { toast(e); }
+        } }),
+      el("button", { class: "btn btn-danger", text: "Delete",
+        onclick: async () => {
+          if (!confirm("Delete " + u.name + "? Their tickets stay, just unassigned.")) return;
+          try { await mut("DELETE", "users/" + u.id); renderPeople(); }
+          catch (e) { toast(e); }
+        } })));
+  return card;
+}
+
+/* ── settings ─────────────────────────────────────────── */
+async function renderSettings() {
+  mount(el("div", { class: "notice loading", text: "Loading…" }));
+  let s;
+  try { s = await api("settings"); }
+  catch (e) { return toast(e); }
+
+  const root = el("div", {});
+  root.append(el("div", { class: "detail-top" },
+    el("a", { class: "back", href: "#/" }, el("span", { text: "←" }),
+      document.createTextNode("All tickets"))));
+  root.append(el("h1", { class: "page-title", text: "Settings" }));
+
+  // auto-due
+  const enable = el("input", { type: "checkbox", "aria-label": "Enable auto-due dates" });
+  enable.checked = !!s.autodue_enabled;
+  const hourInputs = {};
+  const grid = el("div", { class: "sla-grid" });
+  for (const [p, label] of PRIO) {
+    const inp = hourInputs[p] = el("input", {
+      class: "field", type: "number", min: "0", step: "1",
+      value: String(s.autodue_hours[p] ?? s.autodue_hours[String(p)] ?? 0),
+      "aria-label": label + " due-in hours",
+    });
+    grid.append(el("div", { class: "ctl" },
+      el("label", { text: label }),
+      el("div", { class: "sla-in" }, inp, el("span", { class: "sla-unit", text: "hours" }))));
+  }
+  const saveBtn = el("button", { class: "btn btn-accent", text: "Save settings",
+    onclick: async () => {
+      const hours = {};
+      for (const [p] of PRIO) hours[p] = Math.max(0, parseInt(hourInputs[p].value, 10) || 0);
+      try {
+        await mut("PATCH", "settings", { autodue_enabled: enable.checked, autodue_hours: hours });
+        saveBtn.textContent = "Saved ✓"; setTimeout(() => { saveBtn.textContent = "Save settings"; }, 1400);
+      } catch (e) { toast(e); }
+    } });
+
+  root.append(el("div", { class: "card" },
+    el("div", { class: "section-label", text: "Automatic due dates" }),
+    el("p", { class: "page-sub",
+      text: "Set a due date automatically from a ticket's priority when you don't pick one yourself. Applies to new tickets only. 0 hours = no automatic due date for that priority." }),
+    el("label", { class: "toggle-row" }, enable,
+      document.createTextNode("Auto-set due dates from priority")),
+    grid,
+    el("div", { style: "margin-top:14px;display:flex;justify-content:flex-end" }, saveBtn)));
+  mount(root);
+}
+
 /* ── routing ──────────────────────────────────────────── */
 function route() {
   document.onpaste = null;                 // clear detail-view paste handler
-  const m = location.hash.slice(1).match(/^\/t\/(\d+)/);
-  if (m) renderDetail(+m[1]); else renderList();
+  const hash = location.hash.slice(1);
+  const m = hash.match(/^\/t\/(\d+)/);
+  if (m) renderDetail(+m[1]);
+  else if (hash === "/people") renderPeople();
+  else if (hash === "/settings") renderSettings();
+  else renderList();
 }
 window.addEventListener("hashchange", route);
 

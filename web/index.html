@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 
 <!-- Resolve the theme before first paint so there's no light-mode flash.
      Stores only an explicit "light"/"dark" choice; absent = follow the OS. -->
@@ -50,6 +50,8 @@
              placeholder="Search tickets — title or notes…" aria-label="Search tickets">
     </form>
     <div class="mast-actions">
+      <a class="btn" href="#/people" title="Manage end users / requesters">People</a>
+      <a class="btn" href="#/settings" title="App settings">Settings</a>
       <div class="theme-seg" role="radiogroup" aria-label="Color theme">
         <button type="button" class="theme-opt" data-theme-choice="light"
                 role="radio" aria-checked="false" title="Light theme" aria-label="Light theme">
@@ -86,6 +88,6 @@
 
 <main id="main"><div id="view" class="view" tabindex="-1"></div></main>
 
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

@@ -192,6 +192,64 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(
             next(x for x in views["views"] if x["id"] == v["id"])["filter"]["status"], "waiting")
 
+    def test_users_and_requester(self):
+        # Enter a user, attach to a ticket, filter by them, delete detaches.
+        st, u = self.req("POST", "/api/users",
+                         {"name": "Ada Lovelace", "email": "ada@x.com",
+                          "phone": "555-1", "dept": "Analytical Engines"})
+        self.assertEqual(st, 201)
+        uid = u["id"]
+        st, users = self.req("GET", "/api/users")
+        self.assertIn("Ada Lovelace", [x["name"] for x in users["users"]])
+
+        st, t = self.req("POST", "/api/tickets", {"title": "engine jam", "user_id": uid})
+        self.assertEqual(t["user"]["name"], "Ada Lovelace")
+
+        # filter tickets by requester
+        st, lst = self.req("GET", f"/api/tickets?user={uid}")
+        self.assertIn(t["id"], [x["id"] for x in lst["tickets"]])
+
+        # ticket_count reflects the assignment
+        st, users = self.req("GET", "/api/users")
+        self.assertEqual(next(x for x in users["users"] if x["id"] == uid)["ticket_count"], 1)
+
+        # edit the user
+        st, u = self.req("PATCH", f"/api/users/{uid}", {"phone": "555-2"})
+        self.assertEqual(u["phone"], "555-2")
+
+        # deleting the user unassigns but keeps the ticket
+        st, _ = self.req("DELETE", f"/api/users/{uid}")
+        self.assertEqual(st, 200)
+        st, t = self.req("GET", f"/api/tickets/{t['id']}")
+        self.assertEqual(st, 200)
+        self.assertIsNone(t["user"])
+
+    def test_settings_and_autodue(self):
+        # Auto-due fills a due date from priority when none is given.
+        st, s = self.req("GET", "/api/settings")
+        self.assertTrue(s["autodue_enabled"])
+        st, s = self.req("PATCH", "/api/settings",
+                         {"autodue_enabled": True, "autodue_hours": {"1": 2, "4": 0}})
+        self.assertEqual(s["autodue_hours"]["1"], 2)
+
+        st, t = self.req("POST", "/api/tickets", {"title": "auto p1", "priority": 1})
+        self.assertTrue(t["due_at"], "P1 with SLA>0 should get an auto due date")
+
+        # 0 hours = no automatic date for that priority
+        st, t = self.req("POST", "/api/tickets", {"title": "auto p4", "priority": 4})
+        self.assertIsNone(t["due_at"])
+
+        # an explicit date always wins over auto-due
+        st, t = self.req("POST", "/api/tickets",
+                         {"title": "manual date", "priority": 1, "due_at": "2031-05-05T09:00"})
+        self.assertEqual(t["due_at"], "2031-05-05T09:00")
+
+        # turning it off means new tickets get no due date
+        self.req("PATCH", "/api/settings", {"autodue_enabled": False})
+        st, t = self.req("POST", "/api/tickets", {"title": "no auto", "priority": 1})
+        self.assertIsNone(t["due_at"])
+        self.req("PATCH", "/api/settings", {"autodue_enabled": True})   # restore
+
     def test_export_import_roundtrip(self):
         st, snap = self.req("GET", "/api/export")
         before = snap["tickets"]
@@ -202,6 +260,45 @@ class ApiTest(unittest.TestCase):
         # importing the snapshot restores the earlier state exactly
         st, stats = self.req("POST", "/api/import", snap)
         self.assertEqual(stats["total"], len(before))
+
+
+class MigrationTest(unittest.TestCase):
+    """init_db must upgrade a DB that predates the users feature — the path a
+    real, already-running install takes (the API-level tests all start fresh)."""
+
+    def test_init_db_migrates_pre_users_schema(self):
+        import sqlite3
+        d = Path(tempfile.mkdtemp(prefix="triage-migrate-"))
+        old_db, old_attach = db.DB, db.ATTACH
+        old_data = db.DATA
+        db.DATA, db.DB, db.ATTACH = d, d / "tickets.db", d / "attachments"
+        try:
+            # A minimal "old" tickets table: no user_id, no users/settings tables.
+            con = sqlite3.connect(db.DB)
+            con.executescript(
+                "CREATE TABLE tickets (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', "
+                "priority INTEGER NOT NULL DEFAULT 3, status TEXT NOT NULL DEFAULT 'open', "
+                "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, due_at TEXT);")
+            con.execute("INSERT INTO tickets(title, created_at, updated_at) "
+                        "VALUES ('legacy', '2020-01-01T00:00:00', '2020-01-01T00:00:00')")
+            con.commit(); con.close()
+
+            db.init_db()   # must not raise
+
+            con = db.connect()
+            cols = [r["name"] for r in con.execute("PRAGMA table_info(tickets)")]
+            self.assertIn("user_id", cols)
+            self.assertTrue(con.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='index' "
+                "AND name='idx_tickets_user'").fetchone())
+            self.assertTrue(con.execute("SELECT value FROM settings "
+                                        "WHERE key='autodue_enabled'").fetchone())
+            self.assertEqual(con.execute("SELECT COUNT(*) AS n FROM tickets")
+                             .fetchone()["n"], 1)   # legacy row survives
+            con.close()
+        finally:
+            db.DATA, db.DB, db.ATTACH = old_data, old_db, old_attach
 
 
 if __name__ == "__main__":

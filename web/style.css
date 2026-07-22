@@ -500,3 +500,45 @@ textarea.field { width: 100%; resize: vertical; min-height: 76px; line-height: 1
   .t-side { grid-area: side; justify-content: flex-start; padding: 0 14px 10px; }
   .t-main { grid-area: main; padding-bottom: 4px; }
 }
+
+/* ── requester chip on ticket rows ────────────────────── */
+.who {
+  display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+  font-size: 12px; color: var(--ink-2);
+  border: 1px solid var(--line-2); border-radius: 999px; padding: 1px 8px 1px 6px;
+}
+.who:hover { border-color: var(--accent); color: var(--accent); }
+.who-ico { font-size: 10px; line-height: 1; filter: grayscale(1); }
+
+/* ── page headers (People / Settings) ─────────────────── */
+.page-title { font-size: 22px; font-weight: 600; color: var(--ink); margin: 4px 0 6px; }
+.page-sub { color: var(--ink-2); font-size: 13.5px; line-height: 1.55; margin: 0 0 16px; }
+.card + .card, .card + .person-card, .person-card { margin-top: 12px; }
+
+/* ── people ───────────────────────────────────────────── */
+.person-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.person-form .field, .person-card .field { width: 100%; }
+.person-form > .field { margin-top: 12px; }
+.person-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 12px;
+}
+.person-name { font-size: 16px; font-weight: 600; color: var(--ink); }
+.person-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.req-meta { margin-top: 10px; }
+.req-meta:empty { display: none; }
+
+/* ── settings ─────────────────────────────────────────── */
+.toggle-row {
+  display: flex; align-items: center; gap: 9px; margin: 4px 0 16px;
+  font-size: 14px; color: var(--ink); cursor: pointer;
+}
+.toggle-row input { width: 16px; height: 16px; accent-color: var(--accent); }
+.sla-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; }
+.sla-in { display: flex; align-items: center; gap: 8px; }
+.sla-in .field { width: 88px; }
+.sla-unit { font-size: 12px; color: var(--muted); }
+
+@media (max-width: 620px) {
+  .person-grid, .sla-grid { grid-template-columns: 1fr; }
+}

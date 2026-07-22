@@ -56,6 +56,14 @@ To relaunch on boot, run `pm2 startup` once (paste the command it prints), then
   Research / Hold, so nothing gets written up without being triaged.
 - **Work log** — an append-only, timestamped list of notes per ticket. This is
   your record of what you tried, in order.
+- **People (end users)** — keep your own directory of requesters (name, email,
+  phone, department, notes) on the **People** page. Attach one to a ticket, then
+  click their name to see every ticket they've reported.
+- **Auto due dates from priority** — in **Settings**, set an SLA per priority
+  (e.g. P1 in 4h, P3 in 3 days). New tickets with no date you pick get one
+  automatically; a priority's SLA of 0 hours (or the whole feature off) means no
+  auto date. Only new tickets are touched — changing priority later won't move a
+  due date you've set.
 - **Tags + saved views** — label tickets and save filters (e.g. "Waiting on
   vendor") as one-click chips.
 - **Attachments** — paste a screenshot, drop a file, or browse. Stored on disk.
@@ -71,7 +79,8 @@ To relaunch on boot, run `pm2 startup` once (paste the command it prints), then
 
 Everything is under `data/`:
 
-- `data/tickets.db` — the SQLite database (tickets, notes, tags, views).
+- `data/tickets.db` — the SQLite database (tickets, notes, tags, views, people,
+  settings).
 - `data/attachments/` — uploaded files, one folder per ticket.
 
 `data/` is **gitignored** — it's your live state, not code.

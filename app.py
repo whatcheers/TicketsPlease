@@ -91,7 +91,7 @@ class Handler(BaseHTTPRequestHandler):
                     con, status=statuses, tag=one("tag"),
                     overdue=one("overdue") in ("1", "true"),
                     q=one("q"), sort=one("sort", "urgency"),
-                    trash=one("trash") in ("1", "true"))
+                    trash=one("trash") in ("1", "true"), user=one("user"))
                 return self.send_json({"tickets": data})
             if len(parts) == 2 and parts[0] == "tickets":
                 t = store.get_ticket(con, int(parts[1]))
@@ -99,6 +99,14 @@ class Handler(BaseHTTPRequestHandler):
                     {"error": "not found"}, 404)
             if parts == ["tags"]:
                 return self.send_json({"tags": store.list_tags(con)})
+            if parts == ["users"]:
+                return self.send_json({"users": store.list_users(con)})
+            if len(parts) == 2 and parts[0] == "users":
+                u = store.get_user(con, int(parts[1]))
+                return self.send_json(u) if u else self.send_json(
+                    {"error": "not found"}, 404)
+            if parts == ["settings"]:
+                return self.send_json(store.get_settings(con))
             if parts == ["views"]:
                 return self.send_json({"views": store.list_views(con)})
             if len(parts) == 2 and parts[0] == "attachments":
@@ -115,7 +123,7 @@ class Handler(BaseHTTPRequestHandler):
             b = self._json()
             return self.send_json(store.create_ticket(
                 con, b.get("title"), b.get("priority", 3), b.get("body", ""),
-                b.get("due_at"), b.get("tags")), 201)
+                b.get("due_at"), b.get("tags"), b.get("user_id")), 201)
         if len(parts) == 3 and parts[0] == "tickets" and parts[2] == "restore":
             t = store.restore_ticket(con, int(parts[1]))
             return self.send_json(t) if t else self.send_json(
@@ -138,6 +146,8 @@ class Handler(BaseHTTPRequestHandler):
             b = self._json()
             return self.send_json(store.create_tag(
                 con, b.get("name"), b.get("color")), 201)
+        if parts == ["users"]:
+            return self.send_json(store.create_user(con, self._json()), 201)
         if parts == ["views"]:
             b = self._json()
             return self.send_json(store.create_view(
@@ -152,6 +162,12 @@ class Handler(BaseHTTPRequestHandler):
             t = store.update_ticket(con, int(parts[1]), self._json())
             return self.send_json(t) if t else self.send_json(
                 {"error": "not found"}, 404)
+        if len(parts) == 2 and parts[0] == "users":
+            u = store.update_user(con, int(parts[1]), self._json())
+            return self.send_json(u) if u else self.send_json(
+                {"error": "not found"}, 404)
+        if parts == ["settings"]:
+            return self.send_json(store.update_settings(con, self._json()))
         self.send_json({"error": "unknown endpoint"}, 404)
 
     # ── DELETE /api/* ─────────────────────────────────────
@@ -163,7 +179,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": True}) if ok else self.send_json(
                 {"error": "not found"}, 404)
         table = {"tickets": store.delete_ticket, "attachments": store.delete_attachment,
-                 "tags": store.delete_tag, "views": store.delete_view}
+                 "tags": store.delete_tag, "views": store.delete_view,
+                 "users": store.delete_user}
         if len(parts) == 2 and parts[0] in table:
             ok = table[parts[0]](con, int(parts[1]))
             return self.send_json({"ok": True}) if ok else self.send_json(

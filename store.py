@@ -35,6 +35,64 @@ def _parse(iso):
         return None
 
 
+# ── settings & auto-due ───────────────────────────────────
+# Settings live in a key/value table; get_settings always merges over the
+# defaults, so a missing/blank row just means "use the default".
+
+def get_settings(con):
+    rows = {r["key"]: r["value"] for r in con.execute("SELECT key, value FROM settings")}
+    merged = {**db.DEFAULT_SETTINGS, **rows}
+    try:
+        raw = json.loads(merged.get("autodue_hours") or "{}")
+    except (ValueError, TypeError):
+        raw = {}
+    hours = {}
+    for p in db.PRIORITIES:
+        try:
+            hours[p] = max(0, int(raw.get(str(p), db.DEFAULT_AUTODUE_HOURS[p])))
+        except (ValueError, TypeError):
+            hours[p] = db.DEFAULT_AUTODUE_HOURS[p]
+    return {
+        "autodue_enabled": str(merged.get("autodue_enabled", "1")).lower() in ("1", "true"),
+        "autodue_hours": hours,
+    }
+
+
+def _put_setting(con, key, value):
+    con.execute("INSERT INTO settings(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
+
+
+def update_settings(con, fields):
+    if "autodue_enabled" in fields:
+        _put_setting(con, "autodue_enabled", "1" if fields["autodue_enabled"] else "0")
+    if "autodue_hours" in fields:
+        incoming = fields["autodue_hours"] or {}
+        current = get_settings(con)["autodue_hours"]
+        merged = {}
+        for p in db.PRIORITIES:
+            v = incoming.get(str(p), incoming.get(p, current[p]))
+            try:
+                merged[str(p)] = max(0, int(v))
+            except (ValueError, TypeError):
+                merged[str(p)] = current[p]
+        _put_setting(con, "autodue_hours", json.dumps(merged))
+    con.commit()
+    return get_settings(con)
+
+
+def _autodue_for(con, priority):
+    """Due date computed from priority, or None when auto-due is off / the
+    priority's SLA is 0 (0 = 'no automatic due date for this priority')."""
+    s = get_settings(con)
+    if not s["autodue_enabled"]:
+        return None
+    hrs = s["autodue_hours"].get(priority)
+    if not hrs:
+        return None
+    return (datetime.now().replace(microsecond=0) + timedelta(hours=hrs)).isoformat()
+
+
 # ── serialization ─────────────────────────────────────────
 
 def _tags_for(con, tid):
@@ -53,6 +111,12 @@ def _ticket_dict(con, row, now_dt, detail=False):
         due and d["status"] in db.ACTIVE_STATUSES and due < now_dt)
     d["age_seconds"] = int((now_dt - created).total_seconds()) if created else 0
     d["tags"] = _tags_for(con, d["id"])
+    if d.get("user_id"):
+        u = con.execute("SELECT id, name, email, phone, dept FROM users "
+                        "WHERE id = ?", (d["user_id"],)).fetchone()
+        d["user"] = dict(u) if u else None
+    else:
+        d["user"] = None
     if detail:
         d["updates"] = [dict(r) for r in con.execute(
             "SELECT id, body, created_at FROM updates "
@@ -89,7 +153,7 @@ def _fts_query(q):
 
 
 def list_tickets(con, status=None, tag=None, overdue=None, q=None,
-                 sort="urgency", trash=False):
+                 sort="urgency", trash=False, user=None):
     _autoclose(con)
     now_dt = datetime.now()
     where = ["t.deleted_at IS NOT NULL" if trash else "t.deleted_at IS NULL"]
@@ -97,6 +161,9 @@ def list_tickets(con, status=None, tag=None, overdue=None, q=None,
     if status:                       # list of allowed statuses
         where.append("t.status IN (%s)" % ",".join("?" * len(status)))
         args += list(status)
+    if user:
+        where.append("t.user_id = ?")
+        args.append(int(user))
     if tag:
         where.append("t.id IN (SELECT jt.ticket_id FROM ticket_tags jt "
                      "JOIN tags tg ON tg.id = jt.tag_id WHERE tg.name = ? COLLATE NOCASE)")
@@ -177,18 +244,29 @@ def _set_tags(con, tid, names):
                     "VALUES (?, ?)", (tid, tag_id))
 
 
-def create_ticket(con, title, priority=3, body="", due_at=None, tags=None):
+def _valid_user_id(con, user_id):
+    if not user_id:
+        return None
+    uid = int(user_id)
+    return uid if con.execute("SELECT 1 FROM users WHERE id = ?", (uid,)).fetchone() else None
+
+
+def create_ticket(con, title, priority=3, body="", due_at=None, tags=None, user_id=None):
     title = (title or "").strip()
     if not title:
         raise ValueError("title is required")
     priority = int(priority) if priority else 3
     if priority not in db.PRIORITIES:
         priority = 3
+    # No date given? Fall back to the priority's SLA (if auto-due is on).
+    if not due_at:
+        due_at = _autodue_for(con, priority)
     ts = now()
     cur = con.execute(
-        "INSERT INTO tickets(title, body, priority, status, created_at, updated_at, due_at) "
-        "VALUES (?, ?, ?, 'open', ?, ?, ?)",
-        (title, body or "", priority, ts, ts, due_at or None))
+        "INSERT INTO tickets(title, body, priority, status, created_at, updated_at, due_at, user_id) "
+        "VALUES (?, ?, ?, 'open', ?, ?, ?, ?)",
+        (title, body or "", priority, ts, ts, due_at or None,
+         _valid_user_id(con, user_id)))
     tid = cur.lastrowid
     if tags:
         _set_tags(con, tid, tags)
@@ -197,7 +275,7 @@ def create_ticket(con, title, priority=3, body="", due_at=None, tags=None):
 
 
 # Fields a PATCH may touch, and how to coerce each.
-_EDITABLE = {"title", "body", "priority", "status", "due_at", "due_mode"}
+_EDITABLE = {"title", "body", "priority", "status", "due_at", "due_mode", "user_id"}
 
 
 def update_ticket(con, tid, fields):
@@ -223,6 +301,8 @@ def update_ticket(con, tid, fields):
             val = val or None            # "" clears the due date
         if key == "due_mode" and val not in db.DUE_MODES:
             continue
+        if key == "user_id":
+            val = _valid_user_id(con, val)   # None clears the requester
         sets.append(f"{key} = ?")
         args.append(val)
 
@@ -349,6 +429,64 @@ def delete_attachment(con, aid):
     return True
 
 
+# ── users (requesters) ────────────────────────────────────
+
+_USER_FIELDS = ("name", "email", "phone", "dept", "notes")
+
+
+def list_users(con):
+    return [dict(r) for r in con.execute(
+        "SELECT u.*, (SELECT COUNT(*) FROM tickets t "
+        "  WHERE t.user_id = u.id AND t.deleted_at IS NULL) AS ticket_count "
+        "FROM users u ORDER BY u.name COLLATE NOCASE").fetchall()]
+
+
+def get_user(con, uid):
+    r = con.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
+    return dict(r) if r else None
+
+
+def create_user(con, fields):
+    name = (fields.get("name") or "").strip()
+    if not name:
+        raise ValueError("user name is required")
+    cur = con.execute(
+        "INSERT INTO users(name, email, phone, dept, notes, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (name, *(str(fields.get(f, "") or "").strip() for f in _USER_FIELDS[1:]), now()))
+    con.commit()
+    return get_user(con, cur.lastrowid)
+
+
+def update_user(con, uid, fields):
+    if not con.execute("SELECT 1 FROM users WHERE id = ?", (uid,)).fetchone():
+        return None
+    sets, args = [], []
+    for key in _USER_FIELDS:
+        if key not in fields:
+            continue
+        val = str(fields[key] or "").strip()
+        if key == "name" and not val:
+            continue
+        sets.append(f"{key} = ?")
+        args.append(val)
+    if sets:
+        con.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", args + [uid])
+        con.commit()
+    return get_user(con, uid)
+
+
+def delete_user(con, uid):
+    if not con.execute("SELECT 1 FROM users WHERE id = ?", (uid,)).fetchone():
+        return False
+    # Detach from tickets first — a deleted requester should never take tickets
+    # with it (this also covers DBs migrated in before the ON DELETE rule).
+    con.execute("UPDATE tickets SET user_id = NULL WHERE user_id = ?", (uid,))
+    con.execute("DELETE FROM users WHERE id = ?", (uid,))
+    con.commit()
+    return True
+
+
 # ── tags & saved views ────────────────────────────────────
 
 def list_tags(con):
@@ -428,7 +566,9 @@ def stats(con):
 
 # ── export / import (git-friendly JSON portability) ───────
 
-_TABLES = ("tickets", "tags", "ticket_tags", "updates", "attachments", "views")
+# users before tickets (a ticket points at a user); settings last (no FKs).
+_TABLES = ("users", "tickets", "tags", "ticket_tags", "updates", "attachments",
+           "views", "settings")
 
 
 def export_data(con):
