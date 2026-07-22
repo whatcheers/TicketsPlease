@@ -56,6 +56,27 @@ function todayEOD() {           // "due today" = end of today, local clock
   return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T23:59";
 }
 
+// SLA durations are stored as hours on the server but shown as a value + unit.
+const SLA_UNITS = [["hours", 1], ["days", 24], ["weeks", 168]];
+function hoursToHuman(h) {                      // pick the largest whole unit
+  h = Math.max(0, Math.round(h));
+  if (!h) return { value: 0, unit: "hours" };   // 0 = off; keep a sane unit
+  for (const [unit, mult] of [...SLA_UNITS].reverse()) {
+    if (h % mult === 0) return { value: h / mult, unit };
+  }
+  return { value: h, unit: "hours" };
+}
+function humanToHours(value, unit) {
+  const mult = (SLA_UNITS.find(([u]) => u === unit) || ["hours", 1])[1];
+  return Math.max(0, Math.round(value)) * mult;
+}
+function slaPhrase(value, unit) {              // "3 days", "1 hour", "no auto date"
+  value = Math.max(0, Math.round(value));
+  if (!value) return "no automatic due date";
+  const word = value === 1 ? unit.replace(/s$/, "") : unit;
+  return "due " + value + " " + word + " after it's logged";
+}
+
 const VIEWS = [
   { key: "open", label: "Open", params: { status: "open,in_progress,waiting" }, stat: "open" },
   { key: "overdue", label: "Overdue", params: { overdue: "1" }, stat: "overdue" },
@@ -722,22 +743,37 @@ async function renderSettings() {
   // auto-due
   const enable = el("input", { type: "checkbox", "aria-label": "Enable auto-due dates" });
   enable.checked = !!s.autodue_enabled;
-  const hourInputs = {};
+  const slaRows = {};   // p -> { value input, unit select }
   const grid = el("div", { class: "sla-grid" });
   for (const [p, label] of PRIO) {
-    const inp = hourInputs[p] = el("input", {
-      class: "field", type: "number", min: "0", step: "1",
-      value: String(s.autodue_hours[p] ?? s.autodue_hours[String(p)] ?? 0),
-      "aria-label": label + " due-in hours",
+    const start = hoursToHuman(s.autodue_hours[p] ?? s.autodue_hours[String(p)] ?? 0);
+    const preview = el("span", { class: "sla-preview" });
+    const refresh = () => {
+      preview.textContent = slaPhrase(+valInp.value || 0, unitSel.value);
+    };
+    const valInp = el("input", {
+      class: "field sla-val", type: "number", min: "0", step: "1",
+      value: String(start.value), "aria-label": label + " duration",
+      oninput: refresh,
     });
-    grid.append(el("div", { class: "ctl" },
-      el("label", { text: label }),
-      el("div", { class: "sla-in" }, inp, el("span", { class: "sla-unit", text: "hours" }))));
+    const unitSel = el("select", { class: "field sla-unit-sel", "aria-label": label + " unit",
+      onchange: refresh },
+      ...SLA_UNITS.map(([u]) => el("option", { value: u, text: u })));
+    unitSel.value = start.unit;
+    slaRows[p] = { valInp, unitSel };
+    refresh();
+    grid.append(el("div", { class: "sla-row" },
+      el("label", { class: "sla-label", text: label }),
+      el("div", { class: "sla-in" }, valInp, unitSel),
+      preview));
   }
   const saveBtn = el("button", { class: "btn btn-accent", text: "Save settings",
     onclick: async () => {
       const hours = {};
-      for (const [p] of PRIO) hours[p] = Math.max(0, parseInt(hourInputs[p].value, 10) || 0);
+      for (const [p] of PRIO) {
+        const { valInp, unitSel } = slaRows[p];
+        hours[p] = humanToHours(+valInp.value || 0, unitSel.value);
+      }
       try {
         await mut("PATCH", "settings", { autodue_enabled: enable.checked, autodue_hours: hours });
         saveBtn.textContent = "Saved ✓"; setTimeout(() => { saveBtn.textContent = "Save settings"; }, 1400);
@@ -747,7 +783,7 @@ async function renderSettings() {
   root.append(el("div", { class: "card" },
     el("div", { class: "section-label", text: "Automatic due dates" }),
     el("p", { class: "page-sub",
-      text: "Set a due date automatically from a ticket's priority when you don't pick one yourself. Applies to new tickets only. 0 hours = no automatic due date for that priority." }),
+      text: "Give each priority a target turnaround. New tickets you don't set a date on get one automatically from their priority. Applies to new tickets only; set a duration to 0 for a priority that shouldn't get an automatic due date." }),
     el("label", { class: "toggle-row" }, enable,
       document.createTextNode("Auto-set due dates from priority")),
     grid,

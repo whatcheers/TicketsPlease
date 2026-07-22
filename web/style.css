@@ -534,11 +534,19 @@ textarea.field { width: 100%; resize: vertical; min-height: 76px; line-height: 1
   font-size: 14px; color: var(--ink); cursor: pointer;
 }
 .toggle-row input { width: 16px; height: 16px; accent-color: var(--accent); }
-.sla-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; }
-.sla-in { display: flex; align-items: center; gap: 8px; }
-.sla-in .field { width: 88px; }
-.sla-unit { font-size: 12px; color: var(--muted); }
+.sla-grid { display: flex; flex-direction: column; gap: 10px; }
+.sla-row {
+  display: grid; grid-template-columns: 128px auto 1fr; align-items: center;
+  gap: 12px;
+}
+.sla-label { font-size: 13.5px; color: var(--ink); font-weight: 500; }
+.sla-in { display: flex; align-items: center; gap: 6px; }
+.sla-in .sla-val { width: 68px; text-align: right; }
+.sla-in .sla-unit-sel { width: auto; }
+.sla-preview { font-size: 12.5px; color: var(--muted); font-style: italic; }
 
 @media (max-width: 620px) {
-  .person-grid, .sla-grid { grid-template-columns: 1fr; }
+  .person-grid { grid-template-columns: 1fr; }
+  .sla-row { grid-template-columns: 1fr; gap: 4px; }
+  .sla-preview { margin-bottom: 6px; }
 }
