@@ -12,6 +12,7 @@ local tool, not for exposure. Follows the cr-council-votes server shape.
 import hashlib
 import json
 import mimetypes
+import os
 import sys
 from datetime import date
 from email.utils import formatdate
@@ -22,7 +23,11 @@ from urllib.parse import urlparse, parse_qs, unquote
 import db
 import store
 
-PORT = 5137
+# Bind host/port. Default to loopback — a single-user local tool. Set HOST to
+# 0.0.0.0 (e.g. via PM2's ecosystem.config.js) to expose it on the LAN; note
+# there is no authentication, so only do that on a trusted network.
+HOST = os.environ.get("HOST", "127.0.0.1")
+PORT = int(os.environ.get("PORT", "5137"))
 WEB = Path(__file__).parent / "web"
 
 _static_cache = {}   # resolved path -> (mtime, body, etag)
@@ -252,9 +257,10 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve():
     db.init_db()
-    print(f"Ticket tracker  ->  http://localhost:{PORT}   (Ctrl+C to stop)")
+    where = "localhost" if HOST in ("127.0.0.1", "localhost") else HOST
+    print(f"Ticket tracker  ->  http://{where}:{PORT}   (Ctrl+C to stop)")
     try:
-        ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+        ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
     except KeyboardInterrupt:
         print("\nstopped")
 

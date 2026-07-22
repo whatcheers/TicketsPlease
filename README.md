@@ -16,6 +16,33 @@ Then open **http://localhost:5137**. On Windows you can double-click
 
 Requires Python 3.8+. Nothing to install — `pip` is never involved.
 
+By default the server binds `127.0.0.1` (this machine only). Set `HOST` and
+`PORT` to change that — e.g. `HOST=0.0.0.0 python app.py` to reach it from
+other devices on your network. There is **no login**, so only expose it on a
+network you trust.
+
+## Run it as a service (PM2)
+
+To keep it running in the background and restart it on crash/reboot, use
+[PM2](https://pm2.keymetrics.io/):
+
+```
+pm2 start ecosystem.config.js     # launch the tracker
+pm2 logs tickets-please           # tail its output
+pm2 restart tickets-please        # after code changes
+pm2 stop tickets-please           # stop it
+```
+
+The bundled `ecosystem.config.js` runs a single `python3 app.py` process,
+flushes its logs to `logs/`, and sets `HOST=0.0.0.0` so it's reachable on the
+LAN at **http://&lt;this-host&gt;:5137**. Edit the `env` block there to change the
+host/port. After changing `env`, reload with
+`pm2 start ecosystem.config.js --update-env` (a plain `pm2 restart` won't
+re-read the file).
+
+To relaunch on boot, run `pm2 startup` once (paste the command it prints), then
+`pm2 save` while the app is running.
+
 ## What it does
 
 - **Quick-add** — type a title, press Enter, done.
@@ -33,6 +60,8 @@ Requires Python 3.8+. Nothing to install — `pip` is never involved.
   vendor") as one-click chips.
 - **Attachments** — paste a screenshot, drop a file, or browse. Stored on disk.
 - **Search** — full-text over titles and notes.
+- **Light / dark / system theme** — a three-way switch in the masthead. Your
+  choice is remembered; **System** follows the OS setting and tracks it live.
 - **Trash** — deleting a ticket moves it to the Trash view, where it can be
   restored or deleted forever. Nothing is destroyed by a single click.
 - **Auto-close** — a *Resolved* ticket closes itself 24 hours later (the

@@ -13,6 +13,8 @@
   --line:    #d8dde3;
   --line-2:  #bfc7d0;
 
+  --mast-bg: rgba(255, 255, 255, 0.9);   /* sticky masthead, over blur */
+
   --ink:   #171c22;
   --ink-2: #4b5560;
   --muted: #7f8a96;
@@ -33,13 +35,51 @@
 
   --work:    #33608f;            /* in-progress — steel blue */
   --danger:  #c22e26;            /* overdue */
-  --danger-wash: #faedeb;
+  --danger-wash: #faedeb;        /* overdue row rest */
+  --danger-line: #ecc8c3;        /* overdue row border */
+  --danger-wash-2: #f7e2de;      /* overdue row hover */
 
   --sans: "Barlow", "Segoe UI", system-ui, sans-serif;
   --cond: "Barlow Condensed", "Arial Narrow", var(--sans);
   --mono: "IBM Plex Mono", Consolas, monospace;
 
   --wrap: 1140px;
+}
+
+/* Dark theme — same workshop restraint, inverted plane: cool slate grays, a
+   single lifted green accent (bright enough to read as link text on dark, so
+   its buttons carry dark ink instead of white). Data colours brightened just
+   enough to hold AA on the dark panels. Applied when the effective theme is
+   dark; the effective theme is resolved (light/dark/system) by app.js and by
+   the anti-flash script in index.html, both stamping data-theme on <html>. */
+:root[data-theme="dark"] {
+  --paper:   #14181d;
+  --panel:   #1b212a;
+  --panel-2: #232b35;
+  --line:    #2c343e;
+  --line-2:  #3b4552;
+
+  --mast-bg: rgba(20, 24, 29, 0.86);
+
+  --ink:   #e8edf2;
+  --ink-2: #b4bec9;
+  --muted: #869099;
+
+  --accent:       #3fbf9d;
+  --accent-hover: #58cfb0;
+  --accent-wash:  rgba(63, 191, 157, 0.15);
+  --on-accent:    #07241c;
+
+  --p1: #f0655b;
+  --p2: #d68a2e;
+  --p3: #8b97a4;
+  --p4: #6a747f;
+
+  --work:   #5b9bd8;
+  --danger: #f0655b;
+  --danger-wash:   rgba(194, 46, 38, 0.16);
+  --danger-line:   rgba(240, 101, 91, 0.42);
+  --danger-wash-2: rgba(194, 46, 38, 0.26);
 }
 
 * { box-sizing: border-box; }
@@ -72,7 +112,7 @@ a:hover { color: var(--accent-hover); }
 /* ── masthead ─────────────────────────────────────────── */
 .masthead {
   position: sticky; top: 0; z-index: 40;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--mast-bg);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line-2);
 }
@@ -102,6 +142,25 @@ a:hover { color: var(--accent-hover); }
 .search input::placeholder { color: var(--muted); }
 .search input:focus-visible { outline-offset: 0; border-color: var(--accent); background: var(--panel); }
 .mast-actions { display: flex; gap: 6px; }
+
+/* ── theme selector (light / dark / system) ───────────── */
+.theme-seg {
+  display: inline-flex; align-items: stretch; flex: none;
+  border: 1px solid var(--line-2); border-radius: 4px;
+  overflow: hidden; background: var(--panel);
+}
+.theme-opt {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 30px; padding: 0; border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.theme-opt:first-child { border-left: 0; }
+.theme-opt svg { width: 15px; height: 15px; display: block; }
+.theme-opt:hover { color: var(--ink); background: var(--panel-2); }
+.theme-opt:focus-visible { outline-offset: -2px; }
+.theme-opt[aria-checked="true"] { background: var(--accent); color: var(--on-accent); }
+.theme-opt[aria-checked="true"]:hover { background: var(--accent-hover); color: var(--on-accent); }
 
 /* ── view shell ───────────────────────────────────────── */
 .view { max-width: var(--wrap); margin: 0 auto; padding: 20px 22px 80px; }
@@ -192,8 +251,8 @@ button.vital:hover { background: var(--panel-2); }
   padding: 0; color: inherit; text-align: left; font: inherit; width: 100%;
 }
 .trow:hover { border-color: var(--line-2); background: var(--panel-2); }
-.trow.is-overdue { background: var(--danger-wash); border-color: #ecc8c3; }
-.trow.is-overdue:hover { background: #f7e2de; }
+.trow.is-overdue { background: var(--danger-wash); border-color: var(--danger-line); }
+.trow.is-overdue:hover { background: var(--danger-wash-2); }
 .trow.is-done { opacity: 0.6; }
 
 /* priority spine: the coloured left edge, full row height */

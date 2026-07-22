@@ -572,6 +572,33 @@ function route() {
 }
 window.addEventListener("hashchange", route);
 
+/* ── theme (light / dark / system) ────────────────────── */
+const THEME_KEY = "ticketsplease.theme";
+const themeMq = window.matchMedia("(prefers-color-scheme: dark)");
+const themeOpts = document.querySelectorAll(".theme-seg .theme-opt");
+
+function themePref() {                       // stored choice, else "system"
+  const v = localStorage.getItem(THEME_KEY);
+  return v === "light" || v === "dark" ? v : "system";
+}
+function applyTheme(pref) {
+  const dark = pref === "dark" || (pref === "system" && themeMq.matches);
+  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  themeOpts.forEach((b) =>
+    b.setAttribute("aria-checked", String(b.dataset.themeChoice === pref)));
+}
+function setTheme(pref) {
+  if (pref === "system") localStorage.removeItem(THEME_KEY);
+  else localStorage.setItem(THEME_KEY, pref);
+  applyTheme(pref);
+}
+themeOpts.forEach((b) =>
+  b.addEventListener("click", () => setTheme(b.dataset.themeChoice)));
+themeMq.addEventListener("change", () => {   // live-track OS when on "system"
+  if (themePref() === "system") applyTheme("system");
+});
+applyTheme(themePref());
+
 /* ── backup / restore (masthead) ──────────────────────── */
 document.getElementById("restoreBtn").addEventListener("click", () =>
   document.getElementById("restoreFile").click());
