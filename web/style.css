@@ -314,6 +314,9 @@ button.vital:hover { background: var(--panel-2); }
   background: var(--panel-2);
 }
 .tag .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--muted); }
+/* Long tag names truncate rather than blow the chip past the row edge. */
+.tag { max-width: 100%; min-width: 0; }
+.tag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── empty / notice ───────────────────────────────────── */
 .notice { color: var(--ink-2); padding: 44px 8px; text-align: center; }
@@ -508,7 +511,10 @@ textarea.field { width: 100%; resize: vertical; min-height: 76px; line-height: 1
   border: 1px solid var(--line-2); border-radius: 999px; padding: 1px 8px 1px 6px;
 }
 .who:hover { border-color: var(--accent); color: var(--accent); }
-.who-ico { font-size: 10px; line-height: 1; filter: grayscale(1); }
+.who-ico { font-size: 10px; line-height: 1; filter: grayscale(1); flex: none; }
+/* A long requester name truncates instead of stretching / clipping the row. */
+.who { max-width: 100%; min-width: 0; }
+.who-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── page headers (People / Settings) ─────────────────── */
 .page-title { font-size: 22px; font-weight: 600; color: var(--ink); margin: 4px 0 6px; }

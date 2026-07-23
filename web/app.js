@@ -276,7 +276,7 @@ function ticketRow(t) {
         e.stopPropagation();
         F.user = t.user.id; F.userName = t.user.name; F.view = "all"; renderList();
       },
-    }, el("span", { class: "who-ico", text: "👤" }), document.createTextNode(t.user.name)));
+    }, el("span", { class: "who-ico", text: "👤" }), el("span", { class: "who-name", text: t.user.name })));
   }
   for (const tag of t.tags) meta.append(tagChip(tag, () => { F.tag = tag.name; F.view = "all"; renderList(); }));
 
@@ -302,7 +302,7 @@ function ticketRow(t) {
 function tagChip(tag, onClick) {
   const c = el("span", { class: "tag", title: onClick ? "Filter by " + tag.name : null },
     el("span", { class: "dot", style: "background:" + (tag.color || "var(--muted)") }),
-    document.createTextNode(tag.name));
+    el("span", { class: "tag-name", text: tag.name }));
   if (onClick) { c.style.cursor = "pointer"; c.addEventListener("click", (e) => { e.stopPropagation(); onClick(); }); }
   return c;
 }

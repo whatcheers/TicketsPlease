@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   updated_at  TEXT    NOT NULL,
   due_at      TEXT,
   due_mode    TEXT    NOT NULL DEFAULT '',
+  due_auto    INTEGER NOT NULL DEFAULT 0,      -- 1 = due_at came from priority SLA, not the user
   resolved_at TEXT,
   deleted_at  TEXT,                         -- set = in the trash
   user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL   -- the requester
@@ -155,6 +156,11 @@ def init_db():
                         "ADD COLUMN due_mode TEXT NOT NULL DEFAULT ''")
         if "deleted_at" not in cols:
             con.execute("ALTER TABLE tickets ADD COLUMN deleted_at TEXT")
+        # Migration for databases created before auto-due was tracked. Existing
+        # rows default to 0 (manual) so a priority change won't clobber their date.
+        if "due_auto" not in cols:
+            con.execute("ALTER TABLE tickets "
+                        "ADD COLUMN due_auto INTEGER NOT NULL DEFAULT 0")
         # Migration for databases created before requesters existed. (SQLite
         # can't add a column with a FK, so it's a plain nullable INTEGER — the
         # ON DELETE SET NULL rule only applies to freshly created DBs, which is

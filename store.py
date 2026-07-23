@@ -258,14 +258,18 @@ def create_ticket(con, title, priority=3, body="", due_at=None, tags=None, user_
     priority = int(priority) if priority else 3
     if priority not in db.PRIORITIES:
         priority = 3
-    # No date given? Fall back to the priority's SLA (if auto-due is on).
+    # No date given? Fall back to the priority's SLA (if auto-due is on). Mark
+    # such dates as auto so a later priority change can recompute them; a date
+    # the caller supplied is theirs and stays put.
+    due_auto = 0
     if not due_at:
         due_at = _autodue_for(con, priority)
+        due_auto = 1 if due_at else 0
     ts = now()
     cur = con.execute(
-        "INSERT INTO tickets(title, body, priority, status, created_at, updated_at, due_at, user_id) "
-        "VALUES (?, ?, ?, 'open', ?, ?, ?, ?)",
-        (title, body or "", priority, ts, ts, due_at or None,
+        "INSERT INTO tickets(title, body, priority, status, created_at, updated_at, due_at, due_auto, user_id) "
+        "VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?)",
+        (title, body or "", priority, ts, ts, due_at or None, due_auto,
          _valid_user_id(con, user_id)))
     tid = cur.lastrowid
     if tags:
@@ -312,6 +316,22 @@ def update_ticket(con, tid, fields):
         sets.append("due_at = NULL")
     if fields.get("due_at") and "due_mode" not in fields:
         sets.append("due_mode = ''")
+
+    # Auto-due bookkeeping. Any date or triage mode the user sets by hand is
+    # theirs from now on (clear the auto flag). Otherwise, when the priority
+    # changes on a ticket whose date was auto-assigned, recompute it from the
+    # new priority's SLA — a manual date (due_auto = 0) is never touched.
+    if "due_at" in fields or "due_mode" in fields:
+        sets.append("due_auto = ?")
+        args.append(0)
+    elif "priority" in fields and row["due_auto"] and not (row["due_mode"] or ""):
+        new_prio = int(fields["priority"])
+        if new_prio in db.PRIORITIES:
+            new_due = _autodue_for(con, new_prio)
+            sets.append("due_at = ?")
+            args.append(new_due)
+            sets.append("due_auto = ?")
+            args.append(1 if new_due else 0)
 
     # resolved_at follows the status transition.
     if "status" in fields and fields["status"] in db.STATUSES:
