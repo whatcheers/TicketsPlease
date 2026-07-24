@@ -269,7 +269,9 @@ button.vital:hover { background: var(--panel-2); }
 .t-main { min-width: 0; padding: 10px 0; }
 .t-title {
   font-size: 15px; color: var(--ink); font-weight: 500;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* Wrap long titles across lines instead of clipping them; break any
+     unbroken run (e.g. a long URL) so it can't push past the row. */
+  overflow-wrap: anywhere; word-break: break-word;
 }
 .trow.is-done .t-title { text-decoration: line-through; text-decoration-color: var(--muted); }
 .t-meta { display: flex; align-items: center; gap: 7px; margin-top: 4px; flex-wrap: wrap; }
